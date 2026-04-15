@@ -406,13 +406,25 @@ CLI_TOOLSETS = get_config().get("platform_toolsets", {}).get("cli", _DEFAULT_TOO
 # Hardcoded fallback models (used when no config.yaml or agent is available)
 # Also used as the OpenRouter model list — keep this curated to current, widely-used models.
 _FALLBACK_MODELS = [
-    {"provider": "OpenAI",    "id": "openai/gpt-5.4-mini",           "label": "GPT-5.4 Mini"},
-    {"provider": "Anthropic", "id": "anthropic/claude-sonnet-4.6",   "label": "Claude Sonnet 4.6"},
-    {"provider": "Anthropic", "id": "anthropic/claude-haiku-4-5",    "label": "Claude Haiku 4.5"},
-    {"provider": "Google",    "id": "google/gemini-3.1-pro",         "label": "Gemini 3.1 Pro"},
-    {"provider": "Google",    "id": "google/gemini-3-flash",       "label": "Gemini 3 Flash"},
-    {"provider": "DeepSeek",  "id": "deepseek/deepseek-chat-v3-0324","label": "DeepSeek V3"},
-    {"provider": "Meta",      "id": "meta-llama/llama-4-scout",      "label": "Llama 4 Scout"},
+    # OpenAI
+    {"provider": "OpenAI",    "id": "openai/gpt-5.4-mini",                "label": "GPT-5.4 Mini"},
+    {"provider": "OpenAI",    "id": "openai/gpt-5.4",                     "label": "GPT-5.4"},
+    # Anthropic — 4.6 flagship + 4.5 generation
+    {"provider": "Anthropic", "id": "anthropic/claude-opus-4.6",          "label": "Claude Opus 4.6"},
+    {"provider": "Anthropic", "id": "anthropic/claude-sonnet-4.6",        "label": "Claude Sonnet 4.6"},
+    {"provider": "Anthropic", "id": "anthropic/claude-sonnet-4-5",        "label": "Claude Sonnet 4.5"},
+    {"provider": "Anthropic", "id": "anthropic/claude-haiku-4-5",         "label": "Claude Haiku 4.5"},
+    # Google
+    {"provider": "Google",    "id": "google/gemini-3.1-pro",              "label": "Gemini 3.1 Pro"},
+    {"provider": "Google",    "id": "google/gemini-3-flash",              "label": "Gemini 3 Flash"},
+    # DeepSeek
+    {"provider": "DeepSeek",  "id": "deepseek/deepseek-chat-v3-0324",     "label": "DeepSeek V3"},
+    {"provider": "DeepSeek",  "id": "deepseek/deepseek-r1",               "label": "DeepSeek R1"},
+    # Meta
+    {"provider": "Meta",      "id": "meta-llama/llama-4-scout",           "label": "Llama 4 Scout"},
+    {"provider": "Meta",      "id": "meta-llama/llama-4-maverick",        "label": "Llama 4 Maverick"},
+    # Mistral
+    {"provider": "Mistral",   "id": "mistralai/mistral-large-latest",     "label": "Mistral Large"},
 ]
 
 # Provider display names for known Hermes provider IDs
@@ -435,6 +447,7 @@ _PROVIDER_DISPLAY = {
     "opencode-zen": "OpenCode Zen",
     "opencode-go": "OpenCode Go",
     "lmstudio": "LM Studio",
+    "mistralai": "Mistral",
 }
 
 # Well-known models per provider (used to populate dropdown for direct API providers)
@@ -551,6 +564,11 @@ _PROVIDER_MODELS = {
     "gemini": [
         {"id": "gemini-3.1-pro", "label": "Gemini 3.1 Pro"},
         {"id": "gemini-3-flash", "label": "Gemini 3 Flash"},
+    ],
+    # Mistral — prefix used in OpenRouter model IDs (mistralai/mistral-large-latest)
+    "mistralai": [
+        {"id": "mistral-large-latest", "label": "Mistral Large"},
+        {"id": "mistral-small-latest", "label": "Mistral Small"},
     ],
 }
 
