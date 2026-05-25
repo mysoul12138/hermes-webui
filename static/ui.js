@@ -735,6 +735,7 @@ window._configuredModelBadges=window._configuredModelBadges||{};
 const MODEL_STATE_KEY='hermes-webui-model-state';
 const PENDING_SESSION_MODEL_PREFIX='hermes-webui-pending-session-model:';
 const PENDING_SESSION_MODEL_MAX_AGE_MS=10*60*1000;
+const _collapsedModelProviderGroups=new Set();
 
 // ── Smart model resolver ────────────────────────────────────────────────────
 // Finds the best matching option value in a <select> for a given model ID.
@@ -1400,7 +1401,23 @@ function renderModelDropdown(){
     return 500;
   };
   // Filter function (defined AFTER _searchRow and _cust* are created)
-  const _filterModels=(term)=>{
+  const _modelGroupKey=(m)=>String((m&&m.providerId)||((m&&m.group)||''));
+  const _renderModelGroupHeader=(label,key,count,collapsed)=>{
+    const heading=document.createElement('button');
+    heading.type='button';
+    heading.className='model-group model-group-toggle'+(collapsed?' collapsed':'');
+    heading.setAttribute('aria-expanded',collapsed?'false':'true');
+    heading.innerHTML=`<span class="model-group-chevron">${li('chevron-down',12)}</span><span class="model-group-label">${esc(label)}</span><span class="model-group-count">${count}</span>`;
+    heading.onclick=(e)=>{
+      e.stopPropagation();
+      const previousScrollTop=dd.scrollTop||0;
+      if(_collapsedModelProviderGroups.has(key)) _collapsedModelProviderGroups.delete(key);
+      else _collapsedModelProviderGroups.add(key);
+      _filterModels(_si.value,{preserveFocus:true,preserveScrollTop:previousScrollTop});
+    };
+    dd.appendChild(heading);
+  };
+  const _filterModels=(term,opts={})=>{
     term=term.trim().toLowerCase();
     const found=new Set();
     for(const m of _modelData){
@@ -1483,16 +1500,19 @@ function renderModelDropdown(){
       }
     }
     // Add remaining models matching filter
-    let _lastGroup=null;
-    // Count models per group for heading labels (#1425)
+    let _lastGroupKey=null;
+    // Count models per provider group for collapsible headings (#1425)
     const _groupCounts={};
     for(const m of _modelData){
       if(configuredIds.has(m.value)) continue;
-      if(m.group&&!m.endpointErrorOnly) _groupCounts[m.group]=(_groupCounts[m.group]||0)+1;
+      const groupKey=_modelGroupKey(m);
+      if(groupKey&&m.group&&!m.endpointErrorOnly){
+        _groupCounts[groupKey]=(_groupCounts[groupKey]||0)+1;
+      }
     }
-    const _renderProviderEndpointHint=(groupName)=>{
-      if(!groupName) return;
-      const entry=_modelData.find(m=>m.group===groupName&&m.modelsEndpointError);
+    const _renderProviderEndpointHint=(groupKey)=>{
+      if(!groupKey) return;
+      const entry=_modelData.find(m=>_modelGroupKey(m)===groupKey&&m.modelsEndpointError);
       if(!entry||!entry.modelsEndpointError) return;
       const hint=document.createElement('div');
       hint.className='model-provider-hint';
@@ -1501,15 +1521,14 @@ function renderModelDropdown(){
     };
     for(const m of _modelData){
       if(configuredIds.has(m.value)||!matches(m)) continue;
-      if(m.group&&m.group!==_lastGroup){
-        const heading=document.createElement('div');
-        heading.className='model-group';
-        const count=_groupCounts[m.group]||0;
-        heading.textContent=count>1?`${m.group} (${count})`:m.group;
-        dd.appendChild(heading);
-        _renderProviderEndpointHint(m.group);
-        _lastGroup=m.group;
+      const groupKey=_modelGroupKey(m);
+      const collapsed=!term&&groupKey&&_collapsedModelProviderGroups.has(groupKey);
+      if(m.group&&groupKey!==_lastGroupKey){
+        _renderModelGroupHeader(m.group,groupKey,_groupCounts[groupKey]||0,collapsed);
+        if(!collapsed) _renderProviderEndpointHint(groupKey);
+        _lastGroupKey=groupKey;
       }
+      if(collapsed) continue;
       if(m.endpointErrorOnly) continue;
       const row=document.createElement('div');
       row.className='model-opt'+(m.value===sel.value?' active':'');
@@ -1530,8 +1549,8 @@ function renderModelDropdown(){
       noResult.style.textAlign='center';
       dd.appendChild(noResult);
     }
-    // Restore focus to search input
-    _si.focus();
+    if(Number.isFinite(opts.preserveScrollTop)) dd.scrollTop=opts.preserveScrollTop;
+    if(!opts.preserveFocus) _si.focus();
   };
   // Event handlers for search input
   _si.addEventListener('input',()=>_filterModels(_si.value));
@@ -4054,6 +4073,18 @@ let _ttsSpeaking=false;
 let _ttsCurrentUtterance=null;
 
 function speakMessage(btn){
+  const edgeSelected=window.HermesEdgeTTS&&window.HermesEdgeTTS.isSelected&&window.HermesEdgeTTS.isSelected();
+  if(edgeSelected){
+    if(btn&&btn.dataset.speaking==='1'){
+      stopTTS();
+      return;
+    }
+    const row=btn?btn.closest('[data-raw-text]'):null;
+    const text=row?row.dataset.rawText:'';
+    const clean=_stripForTTS(text);
+    if(clean) window.HermesEdgeTTS.speakText(clean,btn);
+    return;
+  }
   if(!('speechSynthesis' in window)){
     showToast(t('tts_not_supported')||'Speech synthesis not supported in this browser.');
     return;
@@ -4103,6 +4134,7 @@ function stopTTS(){
   if('speechSynthesis' in window){
     speechSynthesis.cancel();
   }
+  if(window.HermesEdgeTTS&&window.HermesEdgeTTS.stop) window.HermesEdgeTTS.stop();
   _ttsSpeaking=false;
   _ttsCurrentUtterance=null;
   // Reset all speaking buttons
@@ -4110,7 +4142,6 @@ function stopTTS(){
 }
 
 function autoReadLastAssistant(){
-  if(!('speechSynthesis' in window)) return;
   const pref=localStorage.getItem('hermes-tts-auto-read');
   if(pref!=='true') return;
   // Find the last assistant message segment in the DOM
@@ -4122,6 +4153,12 @@ function autoReadLastAssistant(){
   const clean=_stripForTTS(text);
   if(!clean) return;
 
+  if(window.HermesEdgeTTS&&window.HermesEdgeTTS.isSelected&&window.HermesEdgeTTS.isSelected()){
+    window.HermesEdgeTTS.speakText(clean,null);
+    return;
+  }
+
+  if(!('speechSynthesis' in window)) return;
   const utter=new SpeechSynthesisUtterance(clean);
   const savedVoice=localStorage.getItem('hermes-tts-voice');
   const voices=speechSynthesis.getVoices();

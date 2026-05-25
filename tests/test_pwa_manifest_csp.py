@@ -18,8 +18,8 @@ class TestManifestSrcCSP:
         text = (ROOT / "api" / "helpers.py").read_text(encoding="utf-8")
         start = text.find("Content-Security-Policy")
         assert start != -1, "Content-Security-Policy not found in helpers.py"
-        # Grab the full CSP string (up to the closing paren of send_header)
-        chunk = text[start:start + 600]
+        # Grab the full CSP block so added directives do not truncate the tail.
+        chunk = text[start:start + 900]
         return chunk
 
     def test_manifest_src_self_present(self):
@@ -39,5 +39,6 @@ class TestManifestSrcCSP:
         """Existing CSP directives must still be present after the manifest-src addition."""
         csp = self._csp()
         for directive in ("default-src 'self'", "script-src", "style-src",
-                          "font-src", "connect-src", "base-uri 'self'", "form-action 'self'"):
+                          "font-src", "connect-src", "media-src 'self' data: blob:",
+                          "base-uri 'self'", "form-action 'self'"):
             assert directive in csp, f"Expected CSP directive missing: {directive}"

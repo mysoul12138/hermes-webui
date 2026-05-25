@@ -178,6 +178,11 @@ Write-Host "[start.ps1] State dir:  $env:HERMES_WEBUI_STATE_DIR"
 Write-Host "[start.ps1] Binding:    ${BindHostFinal}:${PortFinal}"
 Write-Host ""
 
+& $Python -c "import edge_tts" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Write-Warning "Optional Edge TTS dependency is not installed in this Python environment. To enable Edge TTS, install it into the selected venv with: `"$Python`" -m pip install -r `"$RepoRoot\requirements.txt`""
+}
+
 $serverPath = Join-Path $RepoRoot 'server.py'
 if (-not (Test-Path $serverPath)) {
     Write-Error "server.py not found at $serverPath - is this the hermes-webui repo root?"

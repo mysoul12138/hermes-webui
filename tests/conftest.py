@@ -110,6 +110,9 @@ def _discover_python(agent_dir) -> str:
     local_venv = REPO_ROOT / '.venv' / 'bin' / 'python'
     if local_venv.exists():
         return str(local_venv)
+    windows_test_python = pathlib.Path(r'E:\python\python.exe')
+    if windows_test_python.exists():
+        return str(windows_test_python)
     return shutil.which('python3') or shutil.which('python') or 'python3'
 
 HERMES_AGENT = _discover_agent_dir()

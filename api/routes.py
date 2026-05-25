@@ -21,9 +21,10 @@ import threading
 import time
 import uuid
 import re
+from types import SimpleNamespace
 from pathlib import Path
 from contextlib import closing
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlparse
 from api.agent_sessions import (
     MESSAGING_SOURCES,
     is_cli_session_row,
@@ -31,6 +32,12 @@ from api.agent_sessions import (
     read_session_lineage_report,
 )
 from api.compression_anchor import visible_messages_for_anchor
+from api.conversation_projection import (
+    attach_session_projection_fields,
+    attach_session_projection_metadata,
+    attach_session_projection_metadata_to_rows,
+)
+from api.conversation_projection.session_payload import build_route_visible_session_projection_rows
 from api.session_events import (
     publish_session_list_changed,
     subscribe_session_events,
@@ -74,6 +81,7 @@ _CSP_REPORT_RATE_LIMIT: dict[str, list[float]] = {}
 _CSP_REPORT_RATE_LIMIT_LOCK = threading.Lock()
 _CSP_REPORT_RATE_LIMIT_WINDOW_SECONDS = 60
 _CSP_REPORT_RATE_LIMIT_MAX = 100
+
 _CSP_REPORT_MAX_BODY_BYTES = 64 * 1024
 
 
@@ -853,63 +861,10 @@ _PROVIDER_ALIASES = {
 # Used as fallback when hermes_cli.provider_model_ids() is unavailable or
 # returns [] for a provider (#871).  Kept at module level so the dict is
 # built once, not reconstructed per request.
-_OPENAI_COMPAT_ENDPOINTS = {
-    "zai": "https://api.z.ai/v1",
-    "minimax": "https://api.minimax.chat/v1",
-    "mistralai": "https://api.mistral.ai/v1",
-    "xai": "https://api.x.ai/v1",
-    "deepseek": "https://api.deepseek.com",
-    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
-    "nvidia": "https://integrate.api.nvidia.com/v1",
-}
-# NOTE: "openai-codex" is excluded because it maps to the same endpoint as
-# the base "openai" provider (api.openai.com/v1).  When both are configured
-# the openai provider is already wired through provider_model_ids(); codex-
-# specific model filtering happens downstream in hermes_cli.
-#
-_LIVE_MODELS_CACHE_TTL = 60.0
-_LIVE_MODELS_CACHE: dict[tuple[str, str], tuple[float, dict]] = {}
-_LIVE_MODELS_CACHE_LOCK = threading.RLock()
+def _active_profile_name_for_session_projection() -> str:
+    from api.profiles import get_active_profile_name
 
-
-def _active_profile_for_live_models_cache() -> str:
-    try:
-        from api.profiles import get_active_profile_name
-
-        return get_active_profile_name() or "default"
-    except Exception as _e:
-        # A transient profile-resolution error mis-scopes the cache for up to
-        # 60s ("default" gets the wrong payload). Log so we can detect it; the
-        # blast radius stays small because the TTL caps the bad-cache window.
-        logger.debug("_active_profile_for_live_models_cache fell back to 'default': %s", _e)
-        return "default"
-
-
-def _live_models_cache_key(provider: str) -> tuple[str, str]:
-    return (_active_profile_for_live_models_cache(), provider)
-
-
-def _get_cached_live_models(key: tuple[str, str]) -> dict | None:
-    now = time.monotonic()
-    with _LIVE_MODELS_CACHE_LOCK:
-        cached = _LIVE_MODELS_CACHE.get(key)
-        if not cached:
-            return None
-        ts, payload = cached
-        if now - ts >= _LIVE_MODELS_CACHE_TTL:
-            _LIVE_MODELS_CACHE.pop(key, None)
-            return None
-        return copy.deepcopy(payload)
-
-
-def _set_cached_live_models(key: tuple[str, str], payload: dict) -> None:
-    with _LIVE_MODELS_CACHE_LOCK:
-        _LIVE_MODELS_CACHE[key] = (time.monotonic(), copy.deepcopy(payload))
-
-
-def _clear_live_models_cache() -> None:
-    with _LIVE_MODELS_CACHE_LOCK:
-        _LIVE_MODELS_CACHE.clear()
+    return get_active_profile_name()
 
 from api.config import (
     STATE_DIR,
@@ -944,6 +899,7 @@ from api.config import (
     set_reasoning_display,
     set_reasoning_effort,
     create_stream_channel,
+    get_safe_channel_platform_config_adapters,
     get_webui_session_save_mode,
     STREAM_GOAL_RELATED,
     PENDING_GOAL_CONTINUATION,
@@ -1866,6 +1822,68 @@ def _lookup_cli_session_metadata(session_id: str) -> dict:
     return {}
 
 
+def _visible_session_projection_context(*, parsed=None, all_profiles=None):
+    """Return the same raw row family used by list/search projection metadata."""
+    return _visible_session_projection_rows(
+        parsed=parsed,
+        all_profiles=all_profiles,
+    ).projection_context
+
+
+def _visible_session_projection_rows(
+    *,
+    parsed=None,
+    webui_rows=None,
+    settings=None,
+    cli_rows=None,
+    all_profiles=None,
+):
+    return build_route_visible_session_projection_rows(
+        all_sessions_loader=all_sessions,
+        get_cli_sessions_loader=get_cli_sessions,
+        load_settings_loader=load_settings,
+        get_active_profile_name=_active_profile_name_for_session_projection,
+        all_profiles_parser=_all_profiles_query_flag,
+        is_cli_session_for_settings=_is_cli_session_for_settings,
+        profiles_match=_profiles_match,
+        is_cli_session_row_visible=is_cli_session_row_visible,
+        hide_from_default_sidebar=_hide_from_default_sidebar,
+        merge_cli_sidebar_metadata=_merge_cli_sidebar_metadata,
+        keep_latest_messaging_session_per_source=_keep_latest_messaging_session_per_source,
+        cap_recent_cli_sessions=_cap_recent_cli_sessions,
+        parsed=parsed,
+        webui_rows=webui_rows,
+        settings=settings,
+        cli_rows=cli_rows,
+        all_profiles=all_profiles,
+        cli_cap=CLI_VISIBLE_SESSION_CAP,
+    )
+
+
+def _attach_projection_metadata(
+    row: dict,
+    *,
+    parsed=None,
+    all_profiles=None,
+) -> dict:
+    return attach_session_projection_metadata(
+        row,
+        _visible_session_projection_context(parsed=parsed, all_profiles=all_profiles),
+    )
+
+
+def _attach_projection_metadata_to_rows(
+    rows: list[dict],
+    *,
+    parsed=None,
+    all_profiles=None,
+) -> list[dict]:
+    return attach_session_projection_metadata_to_rows(
+        rows,
+        _visible_session_projection_context(parsed=parsed, all_profiles=all_profiles),
+    )
+
+
 def _messaging_session_identity(session: dict, raw_source: str) -> str:
     metadata = _lookup_gateway_session_identity(session.get("session_id"))
     session_key = _safe_first(
@@ -2297,6 +2315,7 @@ from api.models import (
     _write_session_index,
     SESSION_INDEX_FILE,
     _active_state_db_path,
+    _hide_from_default_sidebar,
     load_projects,
     save_projects,
     import_cli_session,
@@ -2336,7 +2355,16 @@ from api.run_journal import (
     read_run_events,
     stale_interrupted_event,
 )
-from api.providers import get_providers, get_provider_quota, get_provider_cost_history, set_provider_key, remove_provider_key
+from api.providers import (
+    get_provider_quota,
+    get_provider_cost_history,
+)
+from api import provider_routes
+from api.provider_route_registry import register_provider_routes
+from api.route_registry import NO_ROUTE, RouteRegistry
+from api.session_projection_route_registry import register_session_projection_routes
+from api.tts_route_registry import register_tts_routes
+from api.weixin_route_registry import register_weixin_routes
 from api.onboarding import (
     apply_onboarding_setup,
     get_onboarding_status,
@@ -2348,6 +2376,18 @@ from api.oauth import (
     poll_onboarding_oauth_flow,
     start_onboarding_oauth_flow,
 )
+
+_ROUTE_REGISTRY = RouteRegistry()
+register_provider_routes(_ROUTE_REGISTRY)
+register_tts_routes(_ROUTE_REGISTRY)
+register_weixin_routes(_ROUTE_REGISTRY)
+register_session_projection_routes(_ROUTE_REGISTRY)
+
+
+def _route_context():
+    """Expose route dependencies lazily so tests can still monkeypatch routes.py."""
+    return SimpleNamespace(**globals())
+
 
 # Approval system (optional -- graceful fallback if agent not available)
 try:
@@ -3525,6 +3565,14 @@ def _serve_manifest(handler) -> bool:
 def handle_get(handler, parsed) -> bool:
     """Handle all GET routes. Returns True if handled, False for 404."""
 
+    # Registered exact-path business routes:
+    # "/api/hermes/weixin/qrcode", "/api/hermes/weixin/qrcode/status",
+    # "/api/models/live", "/api/providers", "/api/sessions",
+    # "/api/sessions/search".
+    registered = _ROUTE_REGISTRY.dispatch_get(handler, parsed, _route_context())
+    if registered is not NO_ROUTE:
+        return registered
+
     if parsed.path.startswith("/session/static/"):
         # Strip the leading "/session" so _serve_static() sees a path that
         # starts with "/static/" (its required prefix). _serve_static enforces
@@ -3684,9 +3732,6 @@ def handle_get(handler, parsed) -> bool:
     if parsed.path == "/api/models":
         return j(handler, get_available_models())
 
-    if parsed.path == "/api/models/live":
-        return _handle_live_models(handler, parsed)
-
     # ── Auxiliary models (GET/POST) ──
     if parsed.path == "/api/model/auxiliary":
         from api.config import get_auxiliary_models
@@ -3706,10 +3751,6 @@ def handle_get(handler, parsed) -> bool:
         except ValueError as exc:
             bad(handler, str(exc), status=400)
         return True
-
-    # ── Providers (GET) ──
-    if parsed.path == "/api/providers":
-        return j(handler, get_providers())
 
     # ── Plugins/hooks visibility (read-only, no callback/source internals) ──
     if parsed.path == "/api/plugins":
@@ -3749,6 +3790,9 @@ def handle_get(handler, parsed) -> bool:
             settings["agent_version"] = AGENT_VERSION
         except Exception:
             pass
+        adapters = get_safe_channel_platform_config_adapters()
+        if adapters:
+            settings["channel_platform_config_adapters"] = adapters
         return j(handler, settings)
 
     if parsed.path == "/api/reasoning":
@@ -4028,6 +4072,7 @@ def handle_get(handler, parsed) -> bool:
             if effective_provider:
                 raw["model_provider"] = effective_provider
             redact = redact_session_data(raw)
+            _attach_projection_metadata(redact)
             _t5 = _time.monotonic()
             resp = j(handler, {"session": redact})
             _t6 = _time.monotonic()
@@ -4070,7 +4115,9 @@ def handle_get(handler, parsed) -> bool:
                     "tool_calls": [],
                 }
                 sess = _merge_cli_sidebar_metadata(sess, cli_meta)
-                return j(handler, {"session": redact_session_data(sess)})
+                redact = redact_session_data(sess)
+                _attach_projection_metadata(redact)
+                return j(handler, {"session": redact})
             return bad(handler, "Session not found", 404)
 
     if parsed.path == "/api/session/lineage/report":
@@ -4120,107 +4167,6 @@ def handle_get(handler, parsed) -> bool:
         from api.background import get_results
         return j(handler, {"results": get_results(sid)})
 
-    if parsed.path == "/api/sessions":
-        diag = RequestDiagnostics.maybe_start("GET", parsed.path, logger=logger)
-        try:
-            diag.stage("all_sessions")
-            webui_sessions = all_sessions(diag=diag)
-            diag.stage("reconcile_stale_stream_state")
-            if _reconcile_stale_stream_state_for_session_rows(webui_sessions):
-                diag.stage("all_sessions_after_stale_stream_reconcile")
-                webui_sessions = all_sessions(diag=diag)
-            diag.stage("load_settings")
-            settings = load_settings()
-            show_cli_sessions = bool(settings.get("show_cli_sessions"))
-            if show_cli_sessions:
-                diag.stage("get_cli_sessions")
-                cli = get_cli_sessions()
-                diag.stage("merge_cli_sessions")
-                cli_by_id = {s["session_id"]: s for s in cli}
-                for s in webui_sessions:
-                    meta = cli_by_id.get(s.get("session_id"))
-                    if not meta:
-                        continue
-                    if _is_messaging_session_record(meta):
-                        s.update(_merge_cli_sidebar_metadata(s, meta))
-                        if s.get("session_id") != meta.get("session_id"):
-                            s["session_id"] = meta.get("session_id")
-                    else:
-                        for key in ("source_tag", "raw_source", "session_source", "source_label"):
-                            if not s.get(key) and meta.get(key):
-                                s[key] = meta[key]
-                # Apply the same CLI visibility semantics to imported local copies so
-                # low-value imported artifacts do not leak into the sidebar.
-                webui_sessions = [s for s in webui_sessions if is_cli_session_row_visible(s)]
-                webui_ids = {s["session_id"] for s in webui_sessions}
-                from api.models import _hide_from_default_sidebar as _cron_hide
-                deduped_cli = [s for s in cli if s["session_id"] not in webui_ids and is_cli_session_row_visible(s) and not _cron_hide(s)]
-            else:
-                diag.stage("filter_webui_sessions")
-                webui_sessions = [s for s in webui_sessions if not _is_cli_session_for_settings(s)]
-                deduped_cli = []
-            diag.stage("sort_sessions")
-            merged = webui_sessions + deduped_cli
-            merged.sort(
-                key=lambda s: s.get("last_message_at") or s.get("updated_at", 0) or 0,
-                reverse=True,
-            )
-            # ── Profile scoping (#1611) ────────────────────────────────────────
-            # Default: filter to the active profile. ?all_profiles=1 opts into
-            # the aggregate view used by the "All profiles" sidebar toggle.
-            # The other_profile_count is always returned so the UI can render
-            # the "Show N from other profiles" affordance without sending the
-            # cross-profile rows by default.
-            #
-            # IMPORTANT: scope BEFORE _keep_latest_messaging_session_per_source.
-            # _messaging_source_key is profile-blind (#1614 follow-up): if the
-            # same Slack/Telegram identity has sessions in profiles A and B, a
-            # profile-blind dedupe would discard the older one even when scoped
-            # to its own profile, leaving that profile with zero rows for that
-            # source. Filter first so the dedupe operates only within the active
-            # profile's rows.
-            diag.stage("active_profile")
-            from api.profiles import get_active_profile_name
-            active_profile = get_active_profile_name()
-            all_profiles = _all_profiles_query_flag(parsed)
-            diag.stage("profile_filter")
-            if all_profiles:
-                scoped = merged
-                other_profile_count = 0
-            else:
-                scoped = [s for s in merged
-                          if _profiles_match(s.get("profile"), active_profile)]
-                other_profile_count = len(merged) - len(scoped)
-            diag.stage("messaging_dedupe")
-            scoped = _keep_latest_messaging_session_per_source(
-                scoped,
-                show_previous_messaging_sessions=bool(
-                    settings.get("show_previous_messaging_sessions")
-                ),
-            )
-            if show_cli_sessions:
-                diag.stage("cli_cap")
-                scoped = _cap_recent_cli_sessions(scoped, cli_cap=CLI_VISIBLE_SESSION_CAP)
-            diag.stage("redact_sessions")
-            safe_merged = []
-            for s in scoped:
-                item = dict(s)
-                if isinstance(item.get("title"), str):
-                    item["title"] = _redact_text(item["title"])
-                safe_merged.append(item)
-            diag.stage("response_write")
-            return j(handler, {
-                "sessions": safe_merged,
-                "cli_count": len(deduped_cli),
-                "all_profiles": all_profiles,
-                "active_profile": active_profile,
-                "other_profile_count": other_profile_count,
-                "server_time": time.time(),
-                "server_tz": time.strftime("%z"),
-            })
-        finally:
-            diag.finish()
-
     if parsed.path == "/api/projects":
         # ── Profile scoping (#1614) ────────────────────────────────────────
         # Default: filter to the active profile. ?all_profiles=1 returns the
@@ -4259,9 +4205,6 @@ def handle_get(handler, parsed) -> bool:
                 "prefix": prefix,
             },
         )
-
-    if parsed.path == "/api/sessions/search":
-        return _handle_sessions_search(handler, parsed)
 
     if parsed.path == "/api/list":
         return _handle_list_dir(handler, parsed)
@@ -4717,6 +4660,10 @@ def handle_post(handler, parsed) -> bool:
             diag.finish()
         raise
 
+    registered = _ROUTE_REGISTRY.dispatch_post(handler, parsed, body, _route_context())
+    if registered is not NO_ROUTE:
+        return registered
+
     if parsed.path == "/api/session/recovery/repair-safe":
         from api.session_recovery import repair_safe_session_recovery
         result = repair_safe_session_recovery(SESSION_DIR, state_db_path=_active_state_db_path())
@@ -4887,28 +4834,6 @@ def handle_post(handler, parsed) -> bool:
             except ValueError as exc:
                 return bad(handler, str(exc), status=400)
         return bad(handler, f"unknown scope: {scope}", status=400)
-
-    # ── Providers (POST) ──
-    if parsed.path == "/api/providers":
-        provider_id = (body.get("provider") or "").strip().lower()
-        api_key = body.get("api_key")
-        if not provider_id:
-            return bad(handler, "provider is required")
-        if api_key is not None:
-            api_key = str(api_key).strip() or None
-        result = set_provider_key(provider_id, api_key)
-        if not result.get("ok"):
-            return bad(handler, result.get("error", "Unknown error"))
-        return j(handler, result)
-
-    if parsed.path == "/api/providers/delete":
-        provider_id = (body.get("provider") or "").strip().lower()
-        if not provider_id:
-            return bad(handler, "provider is required")
-        result = remove_provider_key(provider_id)
-        if not result.get("ok"):
-            return bad(handler, result.get("error", "Unknown error"))
-        return j(handler, result)
 
     if parsed.path == "/api/reasoning":
         # CLI-parity /reasoning handler — writes to the same config.yaml keys
@@ -6474,48 +6399,9 @@ def _handle_session_export(handler, parsed):
 
 
 def _handle_sessions_search(handler, parsed):
-    qs = parse_qs(parsed.query)
-    q = qs.get("q", [""])[0].lower().strip()
-    content_search = qs.get("content", ["1"])[0] == "1"
-    depth = int(qs.get("depth", ["5"])[0])
-    if not q:
-        safe_sessions = []
-        for s in all_sessions():
-            item = dict(s)
-            if isinstance(item.get("title"), str):
-                item["title"] = _redact_text(item["title"])
-            safe_sessions.append(item)
-        return j(handler, {"sessions": safe_sessions})
-    results = []
-    for s in all_sessions():
-        title_match = q in (s.get("title") or "").lower()
-        if title_match:
-            item = dict(s, match_type="title")
-            if isinstance(item.get("title"), str):
-                item["title"] = _redact_text(item["title"])
-            results.append(item)
-            continue
-        if content_search:
-            try:
-                sess = get_session(s["session_id"])
-                msgs = sess.messages[:depth] if depth else sess.messages
-                for m in msgs:
-                    c = m.get("content") or ""
-                    if isinstance(c, list):
-                        c = " ".join(
-                            p.get("text", "")
-                            for p in c
-                            if isinstance(p, dict) and p.get("type") == "text"
-                        )
-                    if q in str(c).lower():
-                        item = dict(s, match_type="content")
-                        if isinstance(item.get("title"), str):
-                            item["title"] = _redact_text(item["title"])
-                        results.append(item)
-                        break
-            except (KeyError, Exception):
-                pass
-    return j(handler, {"sessions": results, "query": q, "count": len(results)})
+    from api.session_projection_route_registry import _search_sessions
+
+    return _search_sessions(handler, parsed, _route_context())
 
 
 def _handle_list_dir(handler, parsed):
@@ -7582,285 +7468,40 @@ def _handle_clarify_inject(handler, parsed):
     return j(handler, {"error": "session_id required"}, status=400)
 
 
+_LIVE_MODELS_CACHE_TTL = provider_routes._LIVE_MODELS_CACHE_TTL
+time = provider_routes.time
+
+
+def _clear_live_models_cache() -> None:
+    provider_routes._clear_live_models_cache()
+
+
+def _models_endpoint_from_base_url(base_url: str) -> str:
+    return provider_routes._models_endpoint_from_base_url(base_url)
+
+
+def _extract_model_ids_from_models_payload(payload, *, free_only: bool = False) -> list[str]:
+    return provider_routes._extract_model_ids_from_models_payload(payload, free_only=free_only)
+
+
+def _fetch_openai_compatible_model_ids(base_url: str, api_key: str = "", *, free_only: bool = False) -> list[str]:
+    return provider_routes._fetch_openai_compatible_model_ids(base_url, api_key, free_only=free_only)
+
+
+def _handle_provider_models_fetch(handler, body: dict):
+    return provider_routes.handle_provider_models_fetch(handler, body, j)
+
+
+def _handle_provider_models_refresh(handler, body: dict):
+    return provider_routes.handle_provider_models_refresh(handler, body, j, bad)
+
+
 def _handle_live_models(handler, parsed):
-    """Return the live model list for a provider.
+    return provider_routes.handle_live_models(handler, parsed, j)
 
-    Delegates to the agent's provider_model_ids() which handles:
-    - OpenRouter: live fetch from /api/v1/models
-    - Anthropic: live fetch from /v1/models (API key or OAuth token)
-    - Copilot: live fetch from api.githubcopilot.com/models with correct headers
-    - openai-codex: Codex OAuth endpoint + local ~/.codex/ cache fallback
-    - Nous: live fetch from inference-api.nousresearch.com/v1/models
-    - DeepSeek, kimi-coding, opencode-zen/go, custom: generic OpenAI-compat /v1/models
-    - ZAI, MiniMax, Google/Gemini: fall back to static list (non-standard endpoints)
-    - All others: static _PROVIDER_MODELS fallback
 
-    The agent already maintains all provider-specific auth and endpoint logic
-    in one place; the WebUI inherits it rather than duplicating it.
-
-    Query params:
-        provider  (optional) — provider ID; defaults to active profile provider
-    """
-    qs = parse_qs(parsed.query)
-    provider = (qs.get("provider", [""])[0] or "").lower().strip()
-
-    try:
-        from api.config import get_config as _gc
-        cfg = _gc()
-        if not provider:
-            provider = cfg.get("model", {}).get("provider") or ""
-        if not provider:
-            return j(handler, {"error": "no_provider", "models": []})
-
-        # Normalize provider alias so 'z.ai' -> 'zai', 'x.ai' -> 'xai', etc.
-        # The browser sends whatever active_provider the static endpoint returned;
-        # without normalization, provider_model_ids() misses the alias and returns [].
-        # Uses the WebUI-owned table (api/config._resolve_provider_alias) which
-        # works even when hermes_cli is not on sys.path.
-        from api.config import _resolve_provider_alias
-        provider = _resolve_provider_alias(provider)
-
-        cache_key = _live_models_cache_key(provider)
-        cached = _get_cached_live_models(cache_key)
-        if cached is not None:
-            return j(handler, cached)
-
-        def _finish(payload: dict):
-            _set_cached_live_models(cache_key, payload)
-            return j(handler, payload)
-
-        # Delegate to the agent's live-fetch + fallback resolver.
-        # provider_model_ids() tries live endpoints first and falls back to
-        # the static _PROVIDER_MODELS list — it never raises.
-        try:
-            import sys as _sys
-            import os as _os
-            _agent_dir = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
-                                       "..", "..", ".hermes", "hermes-agent")
-            _agent_dir = _os.path.normpath(_agent_dir)
-            if _agent_dir not in _sys.path:
-                _sys.path.insert(0, _agent_dir)
-            from hermes_cli.models import provider_model_ids as _pmi
-            ids = _pmi(provider)
-        except Exception as _import_err:
-            logger.debug("provider_model_ids import failed for %s: %s", provider, _import_err)
-            ids = []
-
-        if not ids:
-            custom_provider_entry = None
-
-            def _custom_provider_entries_for_request():
-                if not (provider == "custom" or provider.startswith("custom:")):
-                    return []
-                try:
-                    from api.config import _custom_provider_slug_from_name
-                    _cp_entries = cfg.get("custom_providers", [])
-                    if not isinstance(_cp_entries, list):
-                        return []
-                    _matches = []
-                    for _cp in _cp_entries:
-                        if not isinstance(_cp, dict):
-                            continue
-                        _slug = _custom_provider_slug_from_name(_cp.get("name", ""))
-                        if provider.startswith("custom:"):
-                            if _slug == provider:
-                                _matches.append(_cp)
-                        elif provider == "custom" and not _slug:
-                            _matches.append(_cp)
-                    return _matches
-                except Exception:
-                    return []
-
-            def _custom_provider_model_ids(_cp):
-                _ids = []
-
-                def _append(_mid):
-                    _mid = str(_mid or "").strip()
-                    if _mid and _mid not in _ids:
-                        _ids.append(_mid)
-
-                _append(_cp.get("model", ""))
-                _models = _cp.get("models")
-                if isinstance(_models, dict):
-                    for _mid in _models:
-                        if isinstance(_mid, str):
-                            _append(_mid)
-                elif isinstance(_models, list):
-                    for _item in _models:
-                        if isinstance(_item, str):
-                            _append(_item)
-                        elif isinstance(_item, dict):
-                            _append(_item.get("id") or _item.get("model") or _item.get("name"))
-                return _ids
-
-            def _custom_provider_api_key(_cp):
-                _raw = _cp.get("api_key")
-                if _raw is not None:
-                    _key = str(_raw).strip()
-                    if _key.startswith("${") and _key.endswith("}") and len(_key) > 3:
-                        _key = os.getenv(_key[2:-1], "").strip()
-                    if _key:
-                        return _key
-                _env = str(_cp.get("key_env") or "").strip()
-                return os.getenv(_env, "").strip() if _env else ""
-
-            # For 'custom' and 'custom:*' providers, provider_model_ids()
-            # returns [] because they aren't real hermes_cli endpoints.
-            # Fall back to the custom_providers entries from config.yaml so
-            # the live-model enrichment step can add any models that weren't
-            # already in the static list (issue #1619).
-            if provider == "custom" or provider.startswith("custom:"):
-                for _cp in _custom_provider_entries_for_request():
-                    if custom_provider_entry is None:
-                        custom_provider_entry = _cp
-                    ids.extend(_custom_provider_model_ids(_cp))
-            
-            # If still no ids, try fetching from base_url directly (OpenAI-compat endpoint)
-            if not ids and (provider == "custom" or provider.startswith("custom:")):
-                _base_url = None
-                _api_key = None
-                if custom_provider_entry:
-                    _base_url = custom_provider_entry.get("base_url")
-                    _api_key = _custom_provider_api_key(custom_provider_entry)
-                else:
-                    _model_cfg = cfg.get("model", {})
-                    _base_url = _model_cfg.get("base_url")
-                    _api_key = _model_cfg.get("api_key")
-                if _base_url and _api_key:
-                    try:
-                        import urllib.request
-                        import json
-                        
-                        # Build the models endpoint URL
-                        # AxonHub and similar OpenAI-compat endpoints serve /v1/models
-                        _ep = _base_url.rstrip("/")
-                        # If base_url already ends with /v1, use /models; otherwise add /v1/models
-                        if _ep.endswith("/v1"):
-                            _models_url = f"{_ep}/models"
-                        else:
-                            _models_url = f"{_ep}/v1/models"
-                        
-                        _req = urllib.request.Request(
-                            _models_url,
-                            headers={"Authorization": f"Bearer {_api_key}"},
-                        )
-                        
-                        with urllib.request.urlopen(_req, timeout=8) as _resp:
-                            _body = json.loads(_resp.read())
-                        
-                        # Parse response: {"data": [{"id": "model1", ...}, ...]}
-                        if isinstance(_body, dict):
-                            _data = _body.get("data", [])
-                            if isinstance(_data, list):
-                                ids = [m.get("id", "") for m in _data if m.get("id")]
-                        elif isinstance(_body, list):
-                            ids = [m.get("id", m) if isinstance(m, dict) else m for m in _body]
-                        
-                        if ids:
-                            logger.debug("Live-fetched %d models from custom provider %s", len(ids), _base_url)
-                        else:
-                            logger.debug("Custom provider returned no models from %s", _base_url)
-                    
-                    except Exception as _fetch_err:
-                        logger.debug("Live fetch from custom provider failed: %s", _fetch_err)
-
-        # ── OpenAI-compat live fetch fallback ──────────────────────────────────
-        # When provider_model_ids() is unavailable or returns [] for a provider
-        # that exposes a standard /v1/models endpoint, fetch directly.  This
-        # eliminates the need to keep _PROVIDER_MODELS in sync for providers
-        # that have a discoverable API (#871).
-        #
-        # WARNING: This uses synchronous urllib.request which blocks the worker
-        # thread for up to 8 seconds on timeout. This is acceptable because:
-        #  (a) the server uses threading (not async), so other requests continue;
-        #  (b) the frontend shows the static list immediately and enriches in
-        #      the background via _fetchLiveModels(), so the user never waits.
-        if not ids:
-            _ep = _OPENAI_COMPAT_ENDPOINTS.get(provider)
-            if _ep:
-                try:
-                    import urllib.request
-                    _providers_cfg = cfg.get("providers", {})
-                    _prov = _providers_cfg.get(provider, {}) if isinstance(_providers_cfg, dict) else {}
-                    # Only use provider-scoped key — never fall back to a top-level
-                    # api_key which may belong to a different provider.
-                    _key = _prov.get("api_key") if isinstance(_prov, dict) else None
-                    if not _key:
-                        _key = cfg.get("model", {}).get("api_key")
-                    if _key:
-                        _req = urllib.request.Request(
-                            f"{_ep}/models",
-                            headers={"Authorization": f"Bearer {_key}"},
-                        )
-                        with urllib.request.urlopen(_req, timeout=8) as _resp:
-                            _body = json.loads(_resp.read())
-                        ids = [m.get("id", "") for m in _body.get("data", []) if m.get("id")]
-                        logger.debug("Live-fetched %d models from %s /v1/models", len(ids), provider)
-                except Exception as _fetch_err:
-                    logger.debug("Live fetch from %s failed: %s", provider, _fetch_err)
-                    # Fall through to static list below
-
-        # Static fallback — only reached when live fetch also failed.
-        if not ids:
-            from api.config import _PROVIDER_MODELS as _pm
-            ids = [m["id"] for m in _pm.get(provider, [])]
-        if not ids:
-            return _finish({"provider": provider, "models": [], "count": 0})
-
-        # For Nous Portal, apply the same featured-set cap that
-        # /api/models uses so background enrichment via _fetchLiveModels()
-        # doesn't undo the dropdown trim — otherwise a 397-model catalog
-        # would still flood the picker after the initial render finished
-        # the cap. The full list is returned via the main /api/models
-        # endpoint's extra_models field for /model autocomplete; the live
-        # endpoint is purely a dropdown-enrichment surface, so it should
-        # match the dropdown's visibility budget. (#1567)
-        if provider == "nous":
-            try:
-                from api.config import _build_nous_featured_set
-                _default_model = (cfg.get("model", {}) or {}).get("model") if isinstance(cfg.get("model"), dict) else None
-                _featured, _ = _build_nous_featured_set(ids, selected_model_id=_default_model)
-                ids = _featured
-            except Exception:
-                logger.debug("Failed to apply Nous featured-set cap for /api/models/live")
-
-        # Normalise to {id, label} — provider_model_ids() returns plain string IDs.
-        # For ollama-cloud use the shared Ollama formatter (handles `:variant` suffix).
-        # For all other providers use a simpler hyphen-split capitaliser.
-        from api.config import _format_ollama_label as _fmt_ollama
-
-        def _make_label(mid):
-            """Best-effort human label from a model ID string."""
-            if provider in ("ollama", "ollama-cloud"):
-                return _fmt_ollama(mid)
-            # Preserve slashes for router IDs like "anthropic/claude-sonnet-4.6"
-            display = mid.split("/")[-1] if "/" in mid else mid
-            parts = display.split("-")
-            result = []
-            for p in parts:
-                pl = p.lower()
-                if pl == "gpt":
-                    result.append("GPT")
-                elif pl in ("claude", "gemini", "gemma", "llama", "mistral",
-                            "qwen", "deepseek", "grok", "kimi", "glm"):
-                    result.append(p.capitalize())
-                elif p[:1].isdigit():
-                    result.append(p)  # version numbers: 5.4, 3.5, 4.6 — unchanged
-                else:
-                    result.append(p.capitalize())
-            label = " ".join(result)
-            # Restore well-known uppercase tokens that title-casing breaks
-            for orig in ("GPT", "GLM", "API", "AI", "XL", "MoE"):
-                label = label.replace(orig.title(), orig)
-            return label
-
-        models_out = [{"id": mid, "label": _make_label(mid)} for mid in ids if mid]
-        return _finish({"provider": provider, "models": models_out,
-                        "count": len(models_out)})
-
-    except Exception as _e:
-        logger.debug("_handle_live_models failed for %s: %s", provider, _e)
-        return j(handler, {"error": str(_e), "models": []})
+def _live_models_payload_for_provider(provider: str) -> dict:
+    return provider_routes.live_models_payload_for_provider(provider)
 
 
 def _handle_cron_history(handler, parsed):

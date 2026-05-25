@@ -35,10 +35,11 @@ let _logsAutoRefreshTimer = null;
 let _lastLogsLines = [];
 let _logsSeverityFilter = 'all';
 
+
 // Map of panel names → i18n keys for the app titlebar label.
 const APP_TITLEBAR_KEYS = {
   chat: 'tab_chat', tasks: 'tab_tasks', skills: 'tab_skills',
-  memory: 'tab_memory', workspaces: 'tab_workspaces',
+  channels: 'tab_channels', memory: 'tab_memory', workspaces: 'tab_workspaces',
   profiles: 'tab_profiles', todos: 'tab_todos', insights: 'tab_insights', logs: 'tab_logs', settings: 'tab_settings',
 };
 
@@ -243,7 +244,7 @@ async function switchPanel(name, opts = {}) {
   // showing-<name> class on <main>; no class means chat (the default).
   const mainEl = document.querySelector('main.main');
   if (mainEl) {
-    ['settings','skills','memory','tasks','kanban','workspaces','profiles','insights','logs'].forEach(p => {
+    ['settings','skills','channels','memory','tasks','kanban','workspaces','profiles','insights','logs'].forEach(p => {
       mainEl.classList.toggle('showing-' + p, nextPanel === p);
     });
   }
@@ -263,6 +264,7 @@ async function switchPanel(name, opts = {}) {
     switchSettingsSection(_currentSettingsSection);
     loadSettingsPanel();
   }
+  if (nextPanel === 'channels') await _openRegisteredPanel('channels', () => renderChannelsPanel());
   if (opts.fromRailClick && typeof _isDesktopWidth === 'function' && !_isDesktopWidth()) {
     const sidebar = document.querySelector('.sidebar');
     const overlay = document.getElementById('mobileOverlay');
@@ -701,9 +703,18 @@ async function _loadRunContent(jobId, filename, runId){
   const body = document.querySelector(`#${runId} .detail-run-body`);
   if (!body) return;
   const item = document.getElementById(runId);
-  if (!item.classList.contains('open')) {
-    item.classList.add('open');
+  if (!item) return;
+  if (item.classList.contains('open')) {
+    item.classList.remove('open');
+    body.classList.remove('expanded');
+    const btn = item.querySelector('.detail-expand-toggle');
+    if (btn) {
+      const expanded = _cronExpansionGet(_cronRunExpandKey(jobId, filename));
+      btn.textContent = expanded ? '▴' : '▾';
+    }
+    return;
   }
+  item.classList.add('open');
   body.classList.toggle('expanded', _cronExpansionGet(_cronRunExpandKey(jobId, filename)));
   body.innerHTML = `<span style="opacity:.5">${esc(t('loading'))}</span>`;
   try {
@@ -3065,6 +3076,8 @@ function _syncLogsWrap() {
   const wrap = $('logsWrap');
   if (out && wrap) out.classList.toggle('wrap', !!wrap.checked);
 }
+
+
 
 async function loadLogs(animate) {
   const box = $('logsOutput');
@@ -5636,8 +5649,32 @@ function switchSettingsSection(name){
   const dd=$('settingsSectionDropdown');
   if(dd && dd.value!==section) dd.value=section;
   // Lazy-load integration panels when their tabs are opened
-  if(section==='providers') loadProvidersPanel();
+  if(section==='providers') _openRegisteredSettingsSection('providers', () => loadProvidersPanel());
   if(section==='plugins') loadPluginsPanel();
+}
+
+async function _openRegisteredPanel(panel, fallback){
+  if(window.HermesPanelRegistry && typeof window.HermesPanelRegistry.openPanel === 'function'){
+    const handled = await window.HermesPanelRegistry.openPanel(panel, {panel});
+    if(handled) return;
+  }
+  if(typeof fallback === 'function') return fallback();
+}
+
+async function _openRegisteredSettingsSection(section, fallback){
+  if(window.HermesPanelRegistry && typeof window.HermesPanelRegistry.openSettingsSection === 'function'){
+    const handled = await window.HermesPanelRegistry.openSettingsSection(section, {section});
+    if(handled) return;
+  }
+  if(typeof fallback === 'function') return fallback();
+}
+
+async function _notifyRegisteredSettingsLoaded(section, fallback){
+  if(window.HermesPanelRegistry && typeof window.HermesPanelRegistry.settingsLoaded === 'function'){
+    const handled = await window.HermesPanelRegistry.settingsLoaded(section, {section});
+    if(handled) return;
+  }
+  if(typeof fallback === 'function') return fallback();
 }
 
 function _syncHermesPanelSessionActions(){
@@ -6161,6 +6198,31 @@ async function loadSettingsPanel(){
     if(ttsEnabledCb){ttsEnabledCb.checked=localStorage.getItem('hermes-tts-enabled')==='true';ttsEnabledCb.onchange=function(){localStorage.setItem('hermes-tts-enabled',this.checked?'true':'false');_applyTtsEnabled(this.checked);};}
     const ttsAutoReadCb=$('settingsTtsAutoRead');
     if(ttsAutoReadCb){ttsAutoReadCb.checked=localStorage.getItem('hermes-tts-auto-read')==='true';ttsAutoReadCb.onchange=function(){localStorage.setItem('hermes-tts-auto-read',this.checked?'true':'false');};}
+    const ttsProviderSel=$('settingsTtsProvider');
+    const ttsVoiceSel=$('settingsTtsVoice');
+    const ttsVoiceLabel=$('settingsTtsVoiceLabel');
+    const ttsEdgeVoiceInput=$('settingsTtsEdgeVoice');
+    const ttsVoiceHelp=$('settingsTtsVoiceHelp');
+    const applyTtsProviderUi=()=>{
+      const provider=ttsProviderSel&&ttsProviderSel.value==='edge'?'edge':'browser';
+      if(ttsVoiceSel) ttsVoiceSel.style.display=provider==='edge'?'none':'block';
+      if(ttsEdgeVoiceInput) ttsEdgeVoiceInput.style.display=provider==='edge'?'block':'none';
+      if(ttsVoiceLabel){
+        const labelKey=provider==='edge'?'settings_label_tts_edge_voice':'settings_label_tts_voice';
+        ttsVoiceLabel.setAttribute('for',provider==='edge'?'settingsTtsEdgeVoice':'settingsTtsVoice');
+        ttsVoiceLabel.setAttribute('data-i18n',labelKey);
+        ttsVoiceLabel.textContent=typeof t==='function'?t(labelKey):ttsVoiceLabel.textContent;
+      }
+      if(ttsVoiceHelp){
+        ttsVoiceHelp.setAttribute('data-i18n',provider==='edge'?'settings_desc_tts_edge_voice':'settings_desc_tts_voice');
+        ttsVoiceHelp.textContent=typeof t==='function'?t(provider==='edge'?'settings_desc_tts_edge_voice':'settings_desc_tts_voice'):ttsVoiceHelp.textContent;
+      }
+    };
+    if(ttsProviderSel){
+      const savedProvider=localStorage.getItem('hermes-tts-provider')||'browser';
+      ttsProviderSel.value=savedProvider==='edge'?'edge':'browser';
+      ttsProviderSel.onchange=function(){localStorage.setItem('hermes-tts-provider',this.value==='edge'?'edge':'browser');applyTtsProviderUi();stopTTS();};
+    }
     // Voice-mode button visibility (#1488). localStorage-only; no server round-trip.
     // Toggling re-applies immediately via the boot.js helper so the user sees
     // the audio-waveform button appear/disappear without a reload.
@@ -6173,7 +6235,6 @@ async function loadSettingsPanel(){
       };
     }
     // Populate voice selector from speechSynthesis
-    const ttsVoiceSel=$('settingsTtsVoice');
     if(ttsVoiceSel&&'speechSynthesis' in window){
       const populateVoices=()=>{
         const voices=speechSynthesis.getVoices();
@@ -6190,6 +6251,11 @@ async function loadSettingsPanel(){
       speechSynthesis.addEventListener('voiceschanged',populateVoices,{once:true});
       ttsVoiceSel.onchange=function(){localStorage.setItem('hermes-tts-voice',this.value);};
     }
+    if(ttsEdgeVoiceInput){
+      ttsEdgeVoiceInput.value=localStorage.getItem('hermes-tts-edge-voice')||'';
+      ttsEdgeVoiceInput.oninput=function(){localStorage.setItem('hermes-tts-edge-voice',this.value.trim());};
+    }
+    applyTtsProviderUi();
     // TTS rate/pitch sliders
     const ttsRateSlider=$('settingsTtsRate');
     const ttsRateValue=$('settingsTtsRateValue');
@@ -6270,7 +6336,7 @@ async function loadSettingsPanel(){
     }
     _syncHermesPanelSessionActions();
     if(typeof loadDashboardSettings==='function') loadDashboardSettings();
-    loadProvidersPanel(); // load provider cards in background
+    _notifyRegisteredSettingsLoaded('providers', () => loadProvidersPanel()); // load provider cards in background
     loadPluginsPanel(); // load plugin/hook visibility in background
     switchSettingsSection(_settingsSection);
   }catch(e){
@@ -6356,7 +6422,7 @@ function _buildPluginCard(plugin){
 
 // ── Providers panel ───────────────────────────────────────────────────────
 
-const _providerCardEls = new Map(); // providerId → {card, statusDot, input, saveBtn, removeBtn}
+let _providersPanelLoadPromise = null;
 
 async function _fetchProviderQuotaStatus(force=false){
   const endpoint=force?`/api/provider/quota?refresh=1&ts=${Date.now()}`:'/api/provider/quota';
@@ -6369,12 +6435,13 @@ async function loadProvidersPanel(){
   const list=$('providersList');
   const empty=$('providersEmpty');
   if(!list) return;
+  if(_providersPanelLoadPromise) return _providersPanelLoadPromise;
+  const loadPromise=(async()=>{
   try{
     const data=await api('/api/providers');
     const quota=await _fetchProviderQuotaStatus(false).catch(e=>({ok:false,status:'unavailable',quota:null,message:e.message||t('provider_quota_unavailable'),client_fetched_at:new Date().toISOString()}));
     const providers=(data.providers||[]).filter(p=>p.configurable||p.is_oauth||p.is_custom);
     list.innerHTML='';
-    _providerCardEls.clear();
     const quotaCard=_buildProviderQuotaCard(quota);
     if(quotaCard) list.appendChild(quotaCard);
     if(providers.length===0){
@@ -6387,8 +6454,18 @@ async function loadProvidersPanel(){
     for(const p of providers){
       list.appendChild(_buildProviderCard(p));
     }
+    list.dataset.providersLoaded='1';
   }catch(e){
+    if(list.dataset.providersLoaded==='1') return;
     list.innerHTML='<div style="color:var(--error);padding:12px;font-size:13px">Failed to load providers: '+esc(e.message||String(e))+'</div>';
+    list.dataset.providersLoaded='0';
+  }
+  })();
+  _providersPanelLoadPromise=loadPromise;
+  try{
+    return await loadPromise;
+  }finally{
+    if(_providersPanelLoadPromise===loadPromise) _providersPanelLoadPromise=null;
   }
 }
 
@@ -6636,288 +6713,6 @@ function _buildProviderQuotaCard(status){
     });
   }
   return card;
-}
-
-function _buildProviderCard(p){
-  const card=document.createElement('div');
-  card.className='provider-card';
-  card.dataset.provider=p.id;
-  // Use the is_oauth flag from the backend — it reflects _OAUTH_PROVIDERS in providers.py.
-  // key_source can be 'oauth' (hermes auth), 'config_yaml' (token in config.yaml), or 'none'.
-  const isOauth=p.is_oauth===true;
-  // models_total reflects the complete catalog (e.g. 396 for a large-tier
-  // Nous Portal account). The "models" array may be trimmed to a featured
-  // subset for UI scannability — fall back to its length only when the
-  // server didn't supply models_total (older builds, custom providers).
-  const modelCount=Number.isFinite(p.models_total)
-    ? p.models_total
-    : (Array.isArray(p.models) ? p.models.length : 0);
-  const sourceLabel=p.key_source==='oauth'
-    ? t('providers_status_oauth')
-    : p.key_source==='config_yaml'
-      ? t('providers_status_configured')||'Configured'
-      : (p.has_key ? t('providers_status_api_key') : t('providers_status_not_configured_label'));
-  const metaParts=[];
-  if(modelCount>0) metaParts.push(modelCount+(modelCount===1?' model':' models'));
-  metaParts.push(sourceLabel);
-  const metaText=metaParts.join(' · ');
-
-  // Clickable header (toggles body)
-  const header=document.createElement('button');
-  header.type='button';
-  header.className='provider-card-header';
-  header.innerHTML=`
-    <div class="provider-card-info">
-      <div class="provider-card-name">${esc(p.display_name)}</div>
-      <div class="provider-card-meta">${esc(metaText)}</div>
-    </div>
-    ${p.has_key?`<span class="provider-card-badge">${esc(t('providers_status_configured'))}</span>`:''}
-    <svg class="provider-card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="16" height="16"><path d="M6 9l6 6 6-6"/></svg>
-  `;
-  card.appendChild(header);
-
-  const body=document.createElement('div');
-  body.className='provider-card-body';
-
-  if(isOauth){
-    const hint=document.createElement('div');
-    hint.className='provider-card-hint';
-    if(p.key_source==='config_yaml'){
-      hint.textContent=t('providers_oauth_config_yaml_hint')||'Token configured via config.yaml. To update, edit the providers section in your config.yaml or run hermes auth.';
-    } else if(p.auth_error){
-      hint.textContent=p.auth_error;
-      hint.style.color='var(--accent)';
-    } else if(p.has_key){
-      hint.textContent=t('providers_oauth_hint');
-    } else {
-      hint.textContent=t('providers_oauth_not_configured_hint')||'Not authenticated. Run hermes auth in the terminal to configure this provider.';
-      hint.style.color='var(--muted)';
-    }
-    body.appendChild(hint);
-    card.appendChild(body);
-    header.addEventListener('click',()=>card.classList.toggle('open'));
-    return card;
-  }
-
-  let input=null;
-  let saveBtn=null;
-  if(p.configurable){
-    const field=document.createElement('div');
-    field.className='provider-card-field';
-    const label=document.createElement('label');
-    label.className='provider-card-label';
-    label.textContent=t('providers_status_api_key');
-    field.appendChild(label);
-
-    const row=document.createElement('div');
-    row.className='provider-card-row';
-    input=document.createElement('input');
-    input.type='password';
-    input.className='provider-card-input';
-    input.placeholder=p.has_key?t('providers_key_placeholder_replace'):t('providers_key_placeholder_new');
-    input.autocomplete='off';
-    const toggleBtn=document.createElement('button');
-    toggleBtn.type='button';
-    toggleBtn.className='provider-card-btn provider-card-btn-ghost';
-    toggleBtn.textContent='Show';
-    toggleBtn.onclick=()=>{
-      const revealed=input.type==='text';
-      input.type=revealed?'password':'text';
-      toggleBtn.textContent=revealed?'Show':'Hide';
-    };
-    saveBtn=document.createElement('button');
-    saveBtn.type='button';
-    saveBtn.className='provider-card-btn provider-card-btn-primary';
-    saveBtn.textContent=t('providers_save');
-    saveBtn.onclick=()=>_saveProviderKey(p.id);
-    saveBtn.disabled=true;
-    row.appendChild(input);
-    row.appendChild(toggleBtn);
-    row.appendChild(saveBtn);
-    if(p.has_key){
-      const removeBtn=document.createElement('button');
-      removeBtn.type='button';
-      removeBtn.className='provider-card-btn provider-card-btn-danger';
-      removeBtn.textContent=t('providers_remove');
-      removeBtn.onclick=()=>_removeProviderKey(p.id);
-      row.appendChild(removeBtn);
-    }
-    field.appendChild(row);
-    body.appendChild(field);
-  }else{
-    const hint=document.createElement('div');
-    hint.className='provider-card-hint';
-    hint.textContent=p.is_custom
-      ? 'Custom provider loaded from config.yaml / hermes model. Edit it from the CLI or config file.'
-      : 'Provider is managed outside the WebUI.';
-    body.appendChild(hint);
-  }
-
-  // Model list — show when provider has known models
-  if(modelCount>0){
-    const modelSection=document.createElement('div');
-    modelSection.className='provider-card-models';
-    const modelLabel=document.createElement('div');
-    modelLabel.className='provider-card-label';
-    modelLabel.textContent='Models';
-    modelSection.appendChild(modelLabel);
-    const modelList=document.createElement('div');
-    modelList.className='provider-card-model-tags';
-    const renderedModels=Array.isArray(p.models)?p.models:[];
-    for(const m of renderedModels){
-      const tag=document.createElement('span');
-      tag.className='provider-card-model-tag';
-      tag.textContent=m.id||m.label||m;
-      modelList.appendChild(tag);
-    }
-    // When the rendered list is a strict subset of the total catalog (Nous
-    // Portal large-tier accounts hit this with ~400-model catalogs), show
-    // a "+N more" trailing pill so the user knows the picker is intentionally
-    // capped — and they can still reach the full catalog via the /model
-    // slash command (its autocomplete consumes the un-trimmed list from
-    // /api/models's extra_models field). #1567.
-    const totalCount=Number.isFinite(p.models_total)?p.models_total:renderedModels.length;
-    const hiddenCount=Math.max(0, totalCount - renderedModels.length);
-    if(hiddenCount>0){
-      const more=document.createElement('span');
-      more.className='provider-card-model-tag provider-card-model-tag-more';
-      more.textContent='+'+hiddenCount+' more';
-      more.title='The /model slash command can autocomplete every model in this provider\'s catalog.';
-      modelList.appendChild(more);
-    }
-    modelSection.appendChild(modelList);
-    body.appendChild(modelSection);
-  }
-
-  // Refresh models for this provider
-  const refreshRow=document.createElement('div');
-  refreshRow.className='provider-card-row';
-  refreshRow.style.marginTop='6px';
-  const refreshBtn=document.createElement('button');
-  refreshBtn.type='button';
-  refreshBtn.className='provider-card-btn provider-card-btn-ghost';
-  refreshBtn.style.display='flex';
-  refreshBtn.style.alignItems='center';
-  refreshBtn.style.gap='5px';
-  refreshBtn.innerHTML=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg> ${t('providers_refresh_models')||'Refresh Models'}`;
-  refreshBtn.onclick=()=>_refreshProviderModels(p.id, refreshBtn);
-  refreshRow.appendChild(refreshBtn);
-  body.appendChild(refreshRow);
-  card.appendChild(body);
-
-  if(input&&saveBtn){
-    _providerCardEls.set(p.id,{card,input,saveBtn,hasKey:p.has_key});
-    input.addEventListener('input',()=>{saveBtn.disabled=!input.value.trim();});
-  }
-  header.addEventListener('click',e=>{
-    // Don't toggle when clicking inside body (defensive; body isn't inside header)
-    if(e.target.closest('.provider-card-body')) return;
-    card.classList.toggle('open');
-    if(card.classList.contains('open')) setTimeout(()=>input.focus(),0);
-  });
-  return card;
-}
-
-async function _saveProviderKey(providerId){
-  const els=_providerCardEls.get(providerId);
-  if(!els) return;
-  const key=els.input.value.trim();
-  if(!key){
-    showToast(t('providers_enter_key'));
-    return;
-  }
-  els.saveBtn.disabled=true;
-  els.saveBtn.textContent=t('providers_saving');
-  try{
-    const res=await api('/api/providers',{method:'POST',body:JSON.stringify({provider:providerId,api_key:key})});
-    if(res.ok){
-      showToast(res.provider+' key '+res.action);
-      els.input.value='';
-      // Invalidate every dropdown surface that caches /api/models so the
-      // newly-configured provider's models show up without a server restart
-      // or page reload (#1539). Server-side invalidate_models_cache() is
-      // already called by api/providers.py:set_provider_key.
-      _refreshModelDropdownsAfterProviderChange();
-      await loadProvidersPanel(); // refresh list
-    }else{
-      showToast(res.error||'Failed to save key');
-      els.saveBtn.disabled=false;
-      els.saveBtn.textContent=t('providers_save');
-    }
-  }catch(e){
-    showToast('Error: '+e.message);
-    els.saveBtn.disabled=false;
-    els.saveBtn.textContent=t('providers_save');
-  }
-}
-
-async function _removeProviderKey(providerId){
-  const els=_providerCardEls.get(providerId);
-  if(!els) return;
-  if(els.saveBtn){els.saveBtn.disabled=true;els.saveBtn.textContent=t('providers_removing');}
-  try{
-    const res=await api('/api/providers/delete',{method:'POST',body:JSON.stringify({provider:providerId})});
-    if(res.ok){
-      showToast(res.provider+' key '+t('providers_key_removed').toLowerCase());
-      // Drop the removed provider from every cached dropdown surface so it
-      // disappears immediately — composer picker, /model slash command,
-      // Settings → Default Model, configured-model badges (#1539).
-      // Without this, a stale list from before the delete keeps offering
-      // the now-removed provider's models until the page is reloaded.
-      _refreshModelDropdownsAfterProviderChange();
-      await loadProvidersPanel(); // refresh list
-    }else{
-      showToast(res.error||'Failed to remove key');
-      if(els.saveBtn){els.saveBtn.disabled=false;els.saveBtn.textContent=t('providers_save');}
-    }
-  }catch(e){
-    showToast('Error: '+e.message);
-    if(els.saveBtn){els.saveBtn.disabled=false;els.saveBtn.textContent=t('providers_save');}
-  }
-}
-
-// Shared dropdown-cache flush invoked after a provider add/remove. The
-// server-side TTL cache is already invalidated by /api/providers and
-// /api/providers/delete (via api/providers.py:set_provider_key); this
-// flushes the JS-side caches so the next render rebuilds from a fresh
-// /api/models response. Wrapped in a try/catch so a UI module that hasn't
-// loaded yet (e.g. during early Settings open) cannot break the save flow.
-function _refreshModelDropdownsAfterProviderChange(){
-  try{
-    if(typeof window._invalidateSlashModelCache==='function'){
-      window._invalidateSlashModelCache();
-    }
-    // Fire-and-forget: don't block the providers panel refresh on a
-    // dropdown rebuild. The composer/Settings dropdowns will catch up
-    // on the very next paint frame.
-    if(typeof window._ensureModelDropdownReady==='function'){
-      window._modelDropdownReady=null;
-      Promise.resolve(window._ensureModelDropdownReady()).catch(()=>{});
-    }else if(typeof populateModelDropdown==='function'){
-      Promise.resolve(populateModelDropdown()).catch(()=>{});
-    }
-  }catch(_e){
-    // Swallow — dropdown refresh is best-effort, providers panel must still update.
-  }
-}
-
-async function _refreshProviderModels(providerId, btn){
-  btn.disabled=true;
-  const orig=btn.innerHTML;
-  btn.innerHTML=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg> ${t('providers_refreshing')||'Refreshing...'}`;
-  try{
-    const res=await api('/api/models/refresh',{method:'POST',body:JSON.stringify({provider:providerId})});
-    if(res.ok){
-      showToast(t('providers_models_refreshed')||('Models refreshed for '+res.provider));
-    }else{
-      showToast(res.error||'Failed to refresh models');
-    }
-  }catch(e){
-    showToast('Error: '+e.message);
-  }finally{
-    btn.disabled=false;
-    btn.innerHTML=orig;
-  }
 }
 
 function _setSettingsAuthButtonsVisible(active){

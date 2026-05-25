@@ -3,7 +3,7 @@ import re
 
 
 def _helpers_src() -> str:
-    with open("api/helpers.py") as f:
+    with open("api/helpers.py", encoding="utf-8") as f:
         return f.read()
 
 
@@ -42,6 +42,7 @@ class TestCSPGoogleFonts:
             "img-src 'self' data:",
             "font-src 'self' data:",
             "connect-src 'self'",
+            "media-src 'self' data: blob:",
             "manifest-src 'self'",
             "base-uri 'self'",
             "form-action 'self'",

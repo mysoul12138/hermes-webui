@@ -150,6 +150,21 @@ def test_cron_output_usage_strip_render_hook(cleanup_test_sessions):
     assert ".cron-run-usage-strip" in css
 
 
+def test_cron_recent_output_row_click_can_collapse_open_run(cleanup_test_sessions):
+    src, _ = get_text("/static/panels.js")
+    start = src.index("async function _loadRunContent")
+    end = src.index("\n}\n\nfunction openCronDetail", start)
+    body = src[start:end]
+
+    assert "item.classList.contains('open')" in body
+    assert "item.classList.remove('open')" in body
+    assert "body.classList.remove('expanded')" in body
+    collapse_idx = body.index("item.classList.remove('open')")
+    fetch_idx = body.index("api(`/api/crons/run?")
+    assert collapse_idx < fetch_idx
+    assert "return;" in body[collapse_idx:fetch_idx]
+
+
 def test_cron_output_window_preserves_response_after_large_prompt(cleanup_test_sessions):
     """Large skill dumps before ## Response must not hide the useful output."""
     from api.routes import _cron_output_content_window

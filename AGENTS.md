@@ -44,6 +44,9 @@ Follow that checklist's safety rules:
 
 ## Contribution style
 
+- Keep project changes decoupled from upstream: the end goal is conflict-free
+  upstream merges, an acceptable fallback is tiny conflicts, and broad
+  upstream-conflicting changes are not allowed.
 - Keep one logical change per PR; split unrelated refactors or cleanup.
 - Read `docs/CONTRACTS.md` and the linked contract/RFC for the touched
   subsystem before editing.

@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import types
+from pathlib import Path
 
 import api.config as config
 import api.profiles as profiles
@@ -37,6 +38,57 @@ def _install_fake_hermes_cli(monkeypatch):
         invalidate_models_cache()
     except Exception:
         pass
+
+
+def test_get_providers_does_not_live_fetch_model_catalogs(monkeypatch, tmp_path):
+    """Provider list must not block on live model catalog discovery."""
+    calls = []
+    fake_pkg = types.ModuleType("hermes_cli")
+    fake_pkg.__path__ = []
+    fake_models = types.ModuleType("hermes_cli.models")
+    fake_models.list_available_providers = lambda: []
+
+    def provider_model_ids(provider):
+        calls.append(provider)
+        raise AssertionError("/api/providers must not live-fetch model catalogs")
+
+    fake_models.provider_model_ids = provider_model_ids
+    fake_auth = types.ModuleType("hermes_cli.auth")
+    fake_auth.get_auth_status = lambda _pid: {}
+
+    monkeypatch.setitem(sys.modules, "hermes_cli", fake_pkg)
+    monkeypatch.setitem(sys.modules, "hermes_cli.models", fake_models)
+    monkeypatch.setitem(sys.modules, "hermes_cli.auth", fake_auth)
+    monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
+
+    old_cfg = dict(config.cfg)
+    old_mtime = config._cfg_mtime
+    config.cfg.clear()
+    config.cfg.update(
+        {
+            "model": {"provider": "nous"},
+            "providers": {
+                "lmstudio": {"base_url": "http://127.0.0.1:1234/v1"},
+                "xai-oauth": {"api_key": "sk-xai-oauth-test"},
+            },
+        }
+    )
+    config._cfg_mtime = 0.0
+    try:
+        import api.providers as providers
+
+        monkeypatch.setattr(providers, "_read_visible_codex_cache_model_ids", lambda: ["gpt-cached"])
+        get_providers = providers.get_providers
+
+        result = get_providers()
+    finally:
+        config.cfg.clear()
+        config.cfg.update(old_cfg)
+        config._cfg_mtime = old_mtime
+
+    assert calls == []
+    provider_ids = {p["id"] for p in result["providers"]}
+    assert {"nous", "lmstudio", "xai-oauth", "openai-codex"}.issubset(provider_ids)
 
 
 class TestCustomProvidersInGetProviders:
@@ -107,9 +159,180 @@ class TestCustomProvidersInGetProviders:
     def test_providers_panel_renders_config_yaml_custom_providers(self):
         """Settings → Providers must not filter out read-only custom providers."""
         src = open("static/panels.js", encoding="utf-8").read()
+        provider_src = Path("static/provider-config.js").read_text(encoding="utf-8")
         assert "filter(p=>p.configurable||p.is_oauth||p.is_custom)" in src
-        assert "Custom provider loaded from config.yaml / hermes model" in src
-        assert "if(p.configurable){" in src
+        assert "function _buildProviderCard(p)" not in src
+        assert "function _buildProviderCard(p)" in provider_src
+        assert "providers_custom_config_yaml_hint" in provider_src
+        assert "if(p.configurable||p.is_custom){" in provider_src
+        assert "openProviderConfigModal(p)" in provider_src
+
+    def test_add_provider_modal_functions_are_global_for_inline_button(self):
+        """The static Add provider button uses inline onclick, so the modal API must be on window."""
+        html = open("static/index.html", encoding="utf-8").read()
+        src = open("static/panels.js", encoding="utf-8").read()
+        provider_src = Path("static/provider-config.js").read_text(encoding="utf-8")
+        registry_src = Path("static/panel-registry.js").read_text(encoding="utf-8")
+        i18n = Path("static/i18n.js").read_text(encoding="utf-8")
+        assert 'onclick="openProviderConfigModal()"' in html
+        assert 'static/panel-registry.js?v=__WEBUI_VERSION__' in html
+        assert 'static/provider-config.js?v=__WEBUI_VERSION__' in html
+        assert 'static/panel-registry.js?v=__WEBUI_VERSION__' in html.split('static/provider-config.js?v=__WEBUI_VERSION__')[0]
+        assert "registerSettingsSection" in registry_src
+        assert "window.HermesPanelRegistry.registerSettingsSection('providers'" in provider_src
+        assert "_openRegisteredSettingsSection('providers', () => loadProvidersPanel())" in src
+        assert "_notifyRegisteredSettingsLoaded('providers', () => loadProvidersPanel())" in src
+        assert "window.openProviderConfigModal=openProviderConfigModal;" in provider_src
+        assert "window.closeProviderConfigModal=closeProviderConfigModal;" in provider_src
+        assert "window.saveProviderConfigModal=saveProviderConfigModal;" in provider_src
+        assert "overlay.style.display='flex';" in provider_src
+        assert "overlay.setAttribute('aria-hidden','false');" in provider_src
+        assert 'data-i18n="provider_modal_add_title"' in html
+        assert 'data-i18n="provider_modal_desc"' in html
+        assert 'data-i18n="provider_modal_name_label"' in html
+        assert 'data-i18n-placeholder="provider_modal_api_key_placeholder_keep"' in html
+        assert 'id="providerConfigSaveBtn" type="submit" data-i18n="save"' in html
+        assert "const PROVIDER_MODAL_I18N = {" in provider_src
+        assert "const titleKey = editing ? PROVIDER_MODAL_I18N.editTitle : PROVIDER_MODAL_I18N.addTitle;" in provider_src
+        assert "title.textContent=t(titleKey)" in provider_src
+        assert "t('providers_saving')" in provider_src
+        assert "btn.textContent='Save'" not in provider_src
+        assert "openProviderConfigModal(p)" in provider_src
+        assert "saveBtn.closest('.app-dialog-actions')" in provider_src
+        assert "providers_refresh_models" in provider_src
+        assert "_refreshProviderModels(provider.id, refreshBtn)" in provider_src
+        for key in (
+            "providers_add_provider",
+            "providers_refresh_models",
+            "providers_show_key",
+            "providers_hide_key",
+            "providers_models_label",
+            "providers_models_refreshed",
+            "provider_modal_add_title",
+            "provider_modal_edit_title",
+            "provider_modal_desc",
+            "provider_modal_api_key_placeholder_keep",
+            "provider_modal_api_key_placeholder_new",
+        ):
+            assert i18n.count(f"{key}:") >= 2
+
+    def test_providers_panel_load_is_single_flight_and_preserves_success_state(self):
+        """A later timeout must not overwrite a successful providers render."""
+        src = Path("static/panels.js").read_text(encoding="utf-8")
+        assert "let _providersPanelLoadPromise = null;" in src
+        assert "if(_providersPanelLoadPromise) return _providersPanelLoadPromise;" in src
+        assert "list.dataset.providersLoaded='1';" in src
+        assert "if(list.dataset.providersLoaded==='1') return;" in src
+        assert "list.dataset.providersLoaded='0';" in src
+
+    def test_provider_frontend_ux_keeps_card_and_modal_consistent(self):
+        """Provider cards share behavior; refresh models lives in the edit modal."""
+        src = Path("static/panels.js").read_text(encoding="utf-8")
+        provider_src = Path("static/provider-config.js").read_text(encoding="utf-8")
+
+        assert "providers_refresh_models" not in src
+        assert "Refresh Models" not in src
+        assert "_providerCardEls" not in src
+        assert "function _refreshProviderModels" not in src
+        assert "function _refreshProviderModels" in provider_src
+        assert "function _ensureProviderRefreshButton(provider)" in provider_src
+        assert "if(!provider||!provider.id)" in provider_src
+        assert "const PROVIDER_MODEL_DATALIST_ID = 'providerConfigModelOptions';" in provider_src
+        assert "input.setAttribute('list', PROVIDER_MODEL_DATALIST_ID);" in provider_src
+        assert "function _setProviderModelOptions(models)" in provider_src
+        assert "function _getProviderModelOptions()" in provider_src
+        assert "option.value=model.id;" in provider_src
+        assert "if(models.length) body.models=models;" in provider_src
+        assert "if(p.configurable||p.is_custom){" in provider_src
+        assert "input.className='provider-card-input';" in provider_src
+        assert "function _ensureProviderConfigApiKeyToggle()" in provider_src
+        assert "toggleBtn.id='providerConfigApiKeyToggle';" in provider_src
+        assert "apiKey.dataset.savedKeyHidden=editing&&provider.has_key?'1':'0';" in provider_src
+        assert "const placeholderKey=editing&&provider.has_key?'provider_modal_api_key_placeholder_saved':'provider_modal_api_key_placeholder_new';" in provider_src
+        assert "button.disabled=true;" in provider_src
+        assert "button.textContent=t(input.dataset.savedKeyHidden==='1'?'providers_saved_key_hidden':'providers_show_key');" in provider_src
+        assert "button.disabled=false;" in provider_src
+        assert "_setProviderModalStatus(t('provider_modal_saved_key_hidden_hint'), 'warning');" in provider_src
+        assert "button.textContent=t(revealed?'providers_hide_key':'providers_show_key');" in provider_src
+        assert "toggleBtn.onclick=()=>_toggleProviderKeyInput(input, toggleBtn);" in provider_src
+        assert "modelLabel.textContent=t('providers_models_label');" in provider_src
+        assert "more.textContent=t('providers_models_more', hiddenCount);" in provider_src
+        assert "function _updateProviderCardModels(providerId, models)" in provider_src
+        assert "function _providerSelectorValue(value)" in provider_src
+        assert 'document.querySelector(`.provider-card[data-provider="${_providerSelectorValue(providerId)}"]`)' in provider_src
+        assert "_providerStateById.set(providerId,provider);" in provider_src
+        assert "if(meta) meta.textContent=_formatProviderMeta(provider,provider.models_total);" in provider_src
+        assert "await loadProvidersPanel();" not in provider_src.split("async function _refreshProviderModels(providerId, btn)")[1].split("if (window.HermesPanelRegistry)")[0]
+        assert "showToast(" not in provider_src.split("async function _refreshProviderModels(providerId, btn)")[1].split("if (window.HermesPanelRegistry)")[0]
+        assert "_setProviderModalStatus(t('providers_models_refreshed', res.provider||providerId), 'success');" in provider_src
+        assert "_setProviderModalStatus(res.message||res.error||t('providers_models_refresh_failed'), 'error');" in provider_src
+        assert "if(!models.length){" in provider_src
+        assert "_setProviderModalStatus(res.message||res.error||t('providers_models_refresh_empty'), 'warning');" in provider_src
+        assert "base_url:body.base_url" in provider_src
+        assert "api_key:body.api_key" in provider_src
+        assert "if(!body.api_key){" in provider_src
+        assert "_setProviderModalStatus(t('provider_modal_api_key_required_for_refresh'), 'error');" in provider_src
+
+    def test_provider_panel_reload_preserves_expanded_state(self):
+        """Provider cards should reopen after panel reloads rebuild the DOM."""
+        provider_src = Path("static/provider-config.js").read_text(encoding="utf-8")
+
+        assert "const _providerExpandedIds = new Set();" in provider_src
+        assert "if(_providerExpandedIds.has(p.id)) card.classList.add('open');" in provider_src
+        assert "function _toggleProviderCardExpanded(card, providerId)" in provider_src
+        assert "_providerExpandedIds.add(providerId);" in provider_src
+        assert "_providerExpandedIds.delete(providerId);" in provider_src
+        assert "header.addEventListener('click',()=>_toggleProviderCardExpanded(card,p.id));" in provider_src
+        assert "_toggleProviderCardExpanded(card,p.id);" in provider_src
+
+    def test_provider_modal_key_visibility_and_refresh_i18n_exist(self):
+        provider_src = Path("static/provider-config.js").read_text(encoding="utf-8")
+        i18n = Path("static/i18n.js").read_text(encoding="utf-8")
+
+        toggle_src = provider_src.split("function _toggleProviderKeyInput(input, button)")[1].split("function _ensureProviderConfigApiKeyToggle()")[0]
+        assert "const hasValue=!!String(input.value||'').trim();" in toggle_src
+        assert "if(!hasValue){" in toggle_src
+        assert "input.type='password';" in toggle_src
+        assert "input.type=input.type==='text'?'password':'text';" in toggle_src
+        assert "if(hasValue) _setProviderModalStatus();" in toggle_src
+
+        sync_src = provider_src.split("function _syncProviderKeyToggle(input, button)")[1].split("function _toggleProviderKeyInput(input, button)")[0]
+        assert "button.disabled=true;" in sync_src
+        assert "providers_saved_key_hidden" in sync_src
+        assert "button.disabled=false;" in sync_src
+
+        refresh_src = provider_src.split("async function _refreshProviderModels(providerId, btn)")[1].split("if (window.HermesPanelRegistry)")[0]
+        assert "if(!body.api_key){" in refresh_src
+        assert "api('/api/models/refresh'" in refresh_src
+        assert "api_key:body.api_key" in refresh_src
+        assert "use_saved_key" not in refresh_src
+        assert "provider_modal_api_key_required_for_refresh" in i18n
+        assert "provider_modal_saved_key_hidden_hint" in i18n
+        assert "provider_modal_api_key_placeholder_saved" in i18n
+        assert "providers_saved_key_hidden" in i18n
+
+    def test_provider_models_frontend_dedupe_uses_canonical_id(self):
+        provider_src = Path("static/provider-config.js").read_text(encoding="utf-8")
+        normalize_src = provider_src.split("function _normalizeProviderModels(models)")[1].split("function _ensureProviderModelDatalist()")[0]
+
+        assert "firstText(model.id, model.model, model.name, model.label, model.title)" in normalize_src
+        assert "firstText(model.label, model.title, model.name, model.id, model.model)" in normalize_src
+        assert "const key=id.toLowerCase();" in normalize_src
+        assert "seen.has(key)" in normalize_src
+        assert "tag.textContent=m.id||m.label||m;" in provider_src
+
+    def test_custom_provider_frontend_requires_default_model_before_save(self):
+        """Custom provider saves must not submit an empty default model."""
+        provider_src = Path("static/provider-config.js").read_text(encoding="utf-8")
+        i18n = Path("static/i18n.js").read_text(encoding="utf-8")
+
+        save_src = provider_src.split("async function saveProviderConfigModal(event)")[1].split("window.saveProviderConfigModal")[0]
+        assert "const body=_providerModalPayload();" in save_src
+        assert "if(!body.default_model){" in save_src
+        assert "_setProviderModalStatus(t('provider_modal_default_model_required'), 'error');" in save_src
+        assert "return;" in save_src
+        assert "delete body.default_model" not in save_src
+        assert "provider_modal_default_model_required" in i18n
 
     def test_custom_provider_with_multi_models(self, monkeypatch, tmp_path):
         """Custom provider with `models` list should expose all entries."""

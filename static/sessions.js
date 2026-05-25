@@ -889,6 +889,13 @@ function _isCliSession(session) {
   return session.is_cli_session === true;
 }
 
+function _isDefaultHiddenSession(session) {
+  if (!session) return false;
+  const sid = String(session.session_id || '');
+  const source = _sourceKeyForSession(session);
+  return source === 'cron' || session.session_source === 'cron' || sid.startsWith('cron_');
+}
+
 function _normalizeMessageForCliImportComparison(message) {
   if (!message || typeof message !== 'object') return message;
   const clone = { ...message };
@@ -2473,7 +2480,8 @@ function filterSessions(){
   if (!q) { _contentSearchResults = []; return; }
   _searchDebounceTimer = setTimeout(async () => {
     try {
-      const data = await api(`/api/sessions/search?q=${encodeURIComponent(q)}&content=1&depth=5`);
+      const allProfilesQS = _showAllProfiles ? '&all_profiles=1' : '';
+      const data = await api(`/api/sessions/search?q=${encodeURIComponent(q)}&content=1&depth=5${allProfilesQS}`);
       const titleIds = new Set(_allSessions.filter(s => _sessionDisplayTitle(s).toLowerCase().includes(q.toLowerCase())).map(s=>s.session_id));
       _contentSearchResults = (data.sessions||[]).filter(s => s.match_type === 'content' && !titleIds.has(s.session_id));
       renderSessionListFromCache();
@@ -2634,8 +2642,10 @@ function _sessionLineageKey(s, sessionIdsInList, sessionsById){
 function _sessionLineageContainsSession(s, sid){
   if(!s||!sid) return false;
   if(s.session_id===sid) return true;
+  if(Array.isArray(s.represented_session_ids)&&s.represented_session_ids.includes(sid)) return true;
   if(Array.isArray(s._lineage_segments)&&s._lineage_segments.some(seg=>seg&&seg.session_id===sid)) return true;
   if(Array.isArray(s._child_sessions)&&s._child_sessions.some(child=>child&&child.session_id===sid)) return true;
+  if(Array.isArray(s.child_sessions)&&s.child_sessions.some(child=>child&&child.session_id===sid)) return true;
   return false;
 }
 
@@ -2718,7 +2728,58 @@ function _fetchLineageReportForRow(s,lineageKey){
 
 function _sidebarLineageKeyForRow(s){
   if(!s) return null;
-  return s._lineage_key||s._lineage_root_id||s.lineage_root_id||s.parent_session_id||s.session_id||null;
+  return s._lineage_key||s.lineage_key||s.canonical_session_id||s._lineage_root_id||s.lineage_root_id||s.parent_session_id||s.session_id||null;
+}
+
+function _isProjectedSessionRow(s){
+  return !!(s&&Object.prototype.hasOwnProperty.call(s,'projection_version'));
+}
+
+function _projectedSidebarRow(s){
+  if(!_isProjectedSessionRow(s)) return s;
+  const row={...s};
+  if(s.lineage_key&&!row._lineage_key) row._lineage_key=s.lineage_key;
+  else if(s.canonical_session_id&&!row._lineage_key) row._lineage_key=s.canonical_session_id;
+  if(s.canonical_session_id&&!row._lineage_root_id) row._lineage_root_id=s.canonical_session_id;
+  if(Array.isArray(s.lineage_segments)){
+    row._lineage_segments=s.lineage_segments.map(seg=>({...seg}));
+  }
+  if(Array.isArray(s.represented_session_ids)){
+    const representedCount=s.represented_session_ids.filter(Boolean).length;
+    if(representedCount>0){
+      row._lineage_collapsed_count=Math.max(Number(row._lineage_collapsed_count)||0, representedCount);
+    }
+  }
+  if(Array.isArray(s.child_sessions)){
+    row._child_sessions=s.child_sessions.map(child=>({...child}));
+    row._child_session_count=row._child_sessions.length;
+  }
+  return row;
+}
+
+function _sidebarRowsFromProjectionOrLegacy(sessionsRaw){
+  const rows=sessionsRaw||[];
+  const projectedRows=rows.filter(_isProjectedSessionRow).filter(s=>!_isChildSession(s)).map(_projectedSidebarRow);
+  const projectedParentIds=new Set();
+  for(const row of projectedRows){
+    if(row&&row.session_id) projectedParentIds.add(row.session_id);
+    for(const sid of (Array.isArray(row&&row.represented_session_ids)?row.represented_session_ids:[])){
+      if(sid) projectedParentIds.add(sid);
+    }
+  }
+  const projectedOrphanChildren=rows
+    .filter(_isProjectedSessionRow)
+    .filter(_isChildSession)
+    .filter(s=>!projectedParentIds.has(s.parent_session_id))
+    .map(s=>({..._projectedSidebarRow(s),_orphan_child_session:true}));
+  const legacyRows=rows.filter(s=>!_isProjectedSessionRow(s));
+  const legacySidebarRows=legacyRows.length
+    ? _attachChildSessionsToSidebarRows(_collapseSessionLineageForSidebar(legacyRows), legacyRows)
+    : [];
+  if(projectedRows.length===0&&projectedOrphanChildren.length===0){
+    return legacySidebarRows;
+  }
+  return [...projectedRows,...projectedOrphanChildren,...legacySidebarRows];
 }
 
 function _truncatedSessionId(sid){
@@ -2738,6 +2799,9 @@ function _sessionTitleForForkParent(parentSid){
 
 function _attachChildSessionsToSidebarRows(collapsedRows, rawSessions){
   const rows=(collapsedRows||[]).filter(s=>!_isChildSession(s)).map(s=>({...s}));
+  if(typeof _isProjectedSessionRow==='function'&&rows.some(_isProjectedSessionRow)){
+    return rows.map(_projectedSidebarRow);
+  }
   const visibleBySid=new Map();
   const visibleBySegmentSid=new Map();
   const visibleByLineageKey=new Map();
@@ -3056,16 +3120,17 @@ function renderSessionListFromCache(){
   // rows incorrectly. So we trust the wire data and skip the redundant client
   // filter entirely.
   const profileFiltered=withMessages;
+  const defaultVisible=profileFiltered.filter(s=>_activeProject||!_isDefaultHiddenSession(s));
   // Filter by active project. NO_PROJECT_FILTER sentinel asks for sessions
   // with no project_id; otherwise filter to the matching project_id, or
   // pass through when no filter is active.
   const projectFiltered=
     _activeProject===NO_PROJECT_FILTER
-      ?profileFiltered.filter(s=>!s.project_id)
-      :(_activeProject?profileFiltered.filter(s=>s.project_id===_activeProject):profileFiltered);
+      ?defaultVisible.filter(s=>!s.project_id)
+      :(_activeProject?profileFiltered.filter(s=>s.project_id===_activeProject):defaultVisible);
   // Filter archived unless toggle is on
   const sessionsRaw=_showArchived?projectFiltered:projectFiltered.filter(s=>!s.archived);
-  const sessions=_attachChildSessionsToSidebarRows(_collapseSessionLineageForSidebar(sessionsRaw), sessionsRaw);
+  const sessions=_sidebarRowsFromProjectionOrLegacy(sessionsRaw);
   _syncSidebarExpansionForActiveSession(sessions, activeSidForSidebar);
   const archivedCount=projectFiltered.filter(s=>s.archived).length;
   const list=$('sessionList');
@@ -3097,7 +3162,7 @@ function renderSessionListFromCache(){
   else{batchBar.style.display='none';}
   // Project filter bar — show when there are real projects OR there are
   // unassigned sessions (so the Unassigned chip has something to filter to).
-  const hasUnprojected=profileFiltered.some(s=>!s.project_id);
+  const hasUnprojected=defaultVisible.some(s=>!s.project_id);
   if(_allProjects.length>0||hasUnprojected){
     const bar=document.createElement('div');
     bar.className='project-bar';

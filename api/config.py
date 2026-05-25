@@ -1945,6 +1945,8 @@ def resolve_custom_provider_connection(provider_id: str) -> tuple[str | None, st
     # Fallbacks for setups that don't use custom_providers names directly.
     providers_cfg = cfg_data.get("providers", {})
     provider_specific = providers_cfg.get(pid, {}) if isinstance(providers_cfg, dict) else {}
+    if (not isinstance(provider_specific, dict) or not provider_specific) and isinstance(providers_cfg, dict):
+        provider_specific = providers_cfg.get(slug, {})
     provider_custom = providers_cfg.get("custom", {}) if isinstance(providers_cfg, dict) else {}
 
     model_cfg = cfg_data.get("model", {})
@@ -4498,6 +4500,7 @@ _SETTINGS_DEFAULTS = {
     "sidebar_density": "compact",  # compact | detailed
     "auto_title_refresh_every": "0",  # adaptive title refresh: 0=off, 5/10/20=every N exchanges
     "busy_input_mode": "queue",  # behavior when sending while agent is running: queue | interrupt | steer
+    "channel_platform_configs": {},  # messaging channel form values keyed by platform
     "password_hash": None,  # PBKDF2-HMAC-SHA256 hash; None = auth disabled
 }
 _SETTINGS_LEGACY_DROP_KEYS = {"assistant_language", "bubble_layout", "default_model"}
@@ -4599,6 +4602,38 @@ def load_settings() -> dict:
     except Exception:
         logger.debug("Failed to resolve default model provider for settings")
     return settings
+
+
+from api import channel_config_adapters as _channel_config_adapters
+
+
+_CHANNEL_SECRET_MARKER = _channel_config_adapters.CHANNEL_SECRET_MARKER
+
+
+def _active_hermes_env_path() -> Path:
+    return _channel_config_adapters.active_hermes_env_path(HOME)
+
+
+def _channel_env_path_candidates() -> list[Path]:
+    return _channel_config_adapters.channel_env_path_candidates(HOME)
+
+
+def _read_env_entries(env_path: Path, keys: set[str]) -> dict[str, str]:
+    return _channel_config_adapters.read_env_entries(env_path, keys)
+
+
+def get_safe_channel_platform_config_adapters() -> dict[str, dict]:
+    """Return safe channel config summaries sourced outside settings.json.
+
+    Weixin QR login persists credentials into the active Hermes ``.env`` so the
+    gateway can consume them. The static settings UI reads ``/api/settings``;
+    expose only a non-secret marker for the token so the form can show that the
+    channel is configured without leaking the credential.
+    """
+    return _channel_config_adapters.get_safe_channel_platform_config_adapters(
+        env_path_candidates=_channel_env_path_candidates,
+        token_marker=_CHANNEL_SECRET_MARKER,
+    )
 
 
 _SETTINGS_ALLOWED_KEYS = set(_SETTINGS_DEFAULTS.keys()) - {
@@ -4707,6 +4742,22 @@ def save_settings(settings: dict) -> dict:
                     s for s in v
                     if isinstance(s, str) and s.strip() and s not in {"chat", "settings"}
                 ]
+            if k == "channel_platform_configs":
+                if not isinstance(v, dict):
+                    continue
+                cleaned = {}
+                for platform_key, values in v.items():
+                    if not isinstance(platform_key, str) or not isinstance(values, dict):
+                        continue
+                    platform_key = platform_key.strip()
+                    if not platform_key:
+                        continue
+                    cleaned[platform_key] = {
+                        str(field_key).strip(): field_value
+                        for field_key, field_value in values.items()
+                        if isinstance(field_key, str) and field_key.strip()
+                    }
+                v = cleaned
             # Coerce bool keys
             if k in _SETTINGS_BOOL_KEYS:
                 v = bool(v)

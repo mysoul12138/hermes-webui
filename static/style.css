@@ -1157,6 +1157,18 @@
   .skill-toggle.enabled{background:var(--accent-bg-strong);border-color:var(--accent);}
   .skill-toggle::after{content:'';position:absolute;top:1px;left:1px;width:10px;height:10px;border-radius:50%;background:var(--muted);transition:transform .15s;}
   .skill-toggle.enabled::after{transform:translateX(14px);background:var(--accent-text);}
+  /* Channels panel */
+  .channels-panel{flex:1;overflow-y:auto;padding:10px 8px;display:flex;flex-direction:column;gap:8px;}
+  .channel-platform-card{border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.03);overflow:hidden;}
+  .channel-platform-card summary{display:flex;align-items:center;gap:8px;padding:10px 11px;cursor:pointer;list-style:none;}
+  .channel-platform-card summary::-webkit-details-marker{display:none;}
+  .channel-platform-icon{width:28px;height:28px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;background:var(--code-bg);border:1px solid var(--border2);font-size:10px;font-weight:800;color:var(--accent);}
+  .channel-platform-name{font-size:13px;font-weight:650;color:var(--text);min-width:0;flex:1;}
+  .channel-status{font-size:10px;font-weight:750;border-radius:999px;padding:3px 7px;white-space:nowrap;border:1px solid var(--border2);}
+  .channel-status-configured{color:var(--success);background:rgba(34,197,94,.08);border-color:rgba(34,197,94,.28);}
+  .channel-status-not-configured{color:var(--muted);background:rgba(255,255,255,.04);}
+  .channel-config-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 11px;border-top:1px solid var(--border2);font-size:11px;color:var(--muted);}
+  .channels-panel-note{padding:12px 11px;color:var(--muted);font-size:12px;line-height:1.55;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.03);}
   /* Memory panel */
   .memory-panel{flex:1;overflow-y:auto;padding:12px;}
   .memory-section{margin-bottom:16px;}
@@ -2032,6 +2044,12 @@
 .model-dropdown.open{display:block;}
 .model-scope-note{position:sticky;top:0;z-index:2;padding:9px 14px;border-bottom:1px solid var(--border);color:var(--text);font-size:11px;font-weight:650;line-height:1.4;background:color-mix(in srgb,var(--surface) 82%,var(--accent-bg));box-shadow:0 1px 0 rgba(0,0,0,.12);}
 .model-group{padding:8px 14px 4px;font-size:10px;font-weight:700;letter-spacing:.04em;color:var(--muted);text-transform:uppercase;border-top:1px solid var(--border2);margin-top:2px;}
+.model-group-toggle{width:100%;display:flex;align-items:center;gap:7px;background:transparent;border:0;color:var(--muted);font:inherit;text-align:left;cursor:pointer;}
+.model-group-toggle:hover{color:var(--text);background:var(--hover-bg);}
+.model-group-chevron{display:inline-flex;align-items:center;justify-content:center;transition:transform .12s ease;}
+.model-group-toggle.collapsed .model-group-chevron{transform:rotate(-90deg);}
+.model-group-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.model-group-count{margin-left:auto;padding:1px 6px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid var(--border2);font-size:9px;font-weight:700;letter-spacing:0;color:var(--muted);line-height:1.4;}
 .model-opt{padding:10px 14px;cursor:pointer;transition:background .12s;display:flex;flex-direction:column;gap:3px;align-items:flex-start;}
 .model-opt:hover{background:rgba(255,255,255,.07);}
 .model-opt.active{background:var(--accent-bg);}
@@ -2826,11 +2844,13 @@ main.main > #mainTasks,
 main.main > #mainKanban,
 main.main > #mainWorkspaces,
 main.main > #mainProfiles,
+main.main > #mainChannels,
 main.main > #mainInsights,
 main.main > #mainLogs{display:none;}
-main.main:not(.showing-settings):not(.showing-skills):not(.showing-memory):not(.showing-tasks):not(.showing-kanban):not(.showing-workspaces):not(.showing-profiles):not(.showing-insights):not(.showing-logs) > #mainChat{display:flex;}
+main.main:not(.showing-settings):not(.showing-skills):not(.showing-channels):not(.showing-memory):not(.showing-tasks):not(.showing-kanban):not(.showing-workspaces):not(.showing-profiles):not(.showing-insights):not(.showing-logs) > #mainChat{display:flex;}
 main.main.showing-settings > #mainSettings{display:flex;overflow-y:auto;}
 main.main.showing-skills > #mainSkills{display:flex;}
+main.main.showing-channels > #mainChannels{display:flex;}
 main.main.showing-memory > #mainMemory{display:flex;}
 main.main.showing-tasks > #mainTasks{display:flex;}
 main.main.showing-kanban > #mainKanban{display:flex;overflow-y:auto;}
@@ -2921,6 +2941,7 @@ main.main.showing-logs > #mainLogs{display:flex;}
 .settings-action-btn.danger:hover{background:color-mix(in srgb,var(--error,#e05) 8%,transparent);border-color:var(--error,#e05);color:var(--error,#e05);}
 .settings-action-btn:disabled,.settings-action-btn.disabled{opacity:.45;cursor:not-allowed;}
 .settings-action-btn:disabled:hover,.settings-action-btn.disabled:hover{background:var(--sidebar);border-color:var(--border);color:var(--text);}
+.channel-action-btn{min-width:128px;}
 
 /* Primary save buttons (Appearance / Preferences "Save Settings"). */
 #mainSettings .settings-btn,
@@ -3199,6 +3220,21 @@ main.main.showing-logs > #mainLogs{display:flex;}
 }
 .provider-card-btn-danger:hover{
   background:color-mix(in srgb, var(--error) 10%, transparent);
+}
+.provider-config-dialog{width:min(560px,100%);}
+.provider-config-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px;margin-top:12px;}
+.provider-config-field{display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:600;color:var(--muted);}
+.provider-config-field .app-dialog-input{margin-top:0;}
+.provider-config-field:nth-child(2),.provider-config-field:nth-child(3){grid-column:1/-1;}
+.provider-config-error{min-height:16px;margin-top:10px;color:var(--error);font-size:12px;line-height:1.4;}
+.provider-config-error:not(:empty){padding:8px 10px;border:1px solid color-mix(in srgb,var(--error) 35%,transparent);border-radius:8px;background:color-mix(in srgb,var(--error) 10%,transparent);}
+.provider-config-error[data-status="success"]:not(:empty){color:var(--success);border-color:color-mix(in srgb,var(--success) 35%,transparent);background:color-mix(in srgb,var(--success) 10%,transparent);}
+.provider-config-error[data-status="loading"]:not(:empty){color:var(--muted);border-color:var(--border);background:var(--surface);}
+.provider-config-api-key-row{flex-wrap:nowrap;}
+.provider-config-api-key-row .app-dialog-input{flex:1;min-width:0;}
+@media (max-width: 640px){
+  .provider-config-grid{grid-template-columns:1fr;}
+  .provider-config-field:nth-child(2),.provider-config-field:nth-child(3){grid-column:auto;}
 }
 
 
@@ -3802,6 +3838,37 @@ main.main.showing-logs > #mainLogs{display:flex;}
 .main-view-empty-icon{color:var(--muted);opacity:.35;}
 .main-view-empty-title{font-size:18px;font-weight:600;color:var(--text);margin-top:4px;}
 .main-view-empty-sub{font-size:13px;color:var(--muted);line-height:1.55;max-width:420px;}
+.channel-config-shell{display:block;width:100%;}
+.channel-platform-picker{border:1px solid var(--border);border-radius:14px;background:var(--surface);padding:8px;display:flex;flex-direction:column;gap:6px;}
+.channel-platform-option{width:100%;display:flex;align-items:center;gap:9px;border:1px solid transparent;border-radius:11px;background:transparent;color:var(--text);padding:9px 10px;cursor:pointer;text-align:left;}
+.channel-platform-option:hover{background:var(--sidebar);border-color:var(--border);}
+.channel-platform-option.active{background:var(--accent-bg);border-color:var(--accent-bg-strong,var(--accent));color:var(--accent-text);}
+.channel-platform-option-name{font-size:13px;font-weight:650;flex:1;min-width:0;}
+.channel-config-card{width:100%;border:1px solid var(--border);border-radius:16px;background:var(--surface);overflow:hidden;}
+.channel-config-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:18px 20px;border-bottom:1px solid var(--border);}
+.channel-config-card h2{margin:2px 0 4px;font-size:20px;letter-spacing:-.02em;color:var(--text);}
+.channel-config-card p{margin:0;font-size:13px;line-height:1.55;color:var(--muted);}
+.channel-config-eyebrow{font-size:11px;font-weight:750;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);}
+.channel-storage-badge{font-size:11px;font-weight:700;padding:4px 9px;}
+.channel-storage-note{margin:14px 20px 0;padding:10px 12px;border:1px dashed var(--border);border-radius:11px;color:var(--muted);font-size:12px;line-height:1.45;background:var(--sidebar);}
+.channel-config-form{padding:8px 20px 18px;}
+.channel-config-fields{display:flex;flex-direction:column;}
+.channel-setting-row{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:13px 0;border-bottom:1px solid var(--border);}
+.channel-setting-row:last-child{border-bottom:none;}
+.channel-config-input{width:min(320px,36vw);background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:9px;padding:8px 10px;font-size:13px;outline:none;}
+.channel-config-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg);}
+.channel-switch{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);}
+.channel-switch input{width:16px;height:16px;accent-color:var(--accent);}
+.channel-readonly-value{font-size:12px;color:var(--muted);border:1px solid var(--border);border-radius:9px;padding:8px 10px;background:var(--sidebar);}
+.channel-config-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;}
+.channel-save-btn{color:var(--accent-text);border-color:var(--accent-bg-strong,var(--accent));background:var(--accent-bg);}
+@media(max-width:760px){
+  .channel-platform-picker{display:grid;grid-template-columns:repeat(auto-fit,minmax(138px,1fr));}
+  .channel-config-card-head{flex-direction:column;}
+  .channel-setting-row{flex-direction:column;align-items:flex-start;gap:8px;}
+  .channel-config-input{width:100%;}
+  .setting-control{width:100%;}
+}
 
 /* Hide header title/actions entirely when empty state is active */
 main.main > .main-view:not([id="mainChat"]):not([id="mainSettings"]) .main-view-header:has(.main-view-title:empty){display:none;}
