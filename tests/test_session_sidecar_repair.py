@@ -319,7 +319,8 @@ class TestDraftRecovery:
             f"Error marker should not say 'preserved as a draft', got: {content}"
         )
         assert "Response interrupted" in content
-        assert "WebUI process restarted" in content
+        assert "live response stream stopped" in content
+        assert "WebUI process restarted" not in content
         # The marker now arms the lazy-retry hook when a stream id is known
         # ("Recovering the partial output… reload to retry."). The legacy
         # "user message above was preserved" wording is reserved for the
@@ -439,7 +440,7 @@ class TestGetProfileHome:
         monkeypatch.setitem(sys.modules, "api.profiles", None)
         monkeypatch.setenv("HERMES_HOME", "/custom/hermes")
         result = _get_profile_home(None)
-        assert str(result) == "/custom/hermes"
+        assert result == Path("/custom/hermes")
 
     def test_expands_tilde_in_hermes_home(self, monkeypatch):
         """If HERMES_HOME contains ~, it gets expanded."""
@@ -624,7 +625,8 @@ class TestNonEmptyMessagesPendingCleared:
         error_msgs = [m for m in s.messages if m.get("_error")]
         assert len(error_msgs) == 1
         assert "Response interrupted" in error_msgs[0]["content"]
-        assert "WebUI process restarted" in error_msgs[0]["content"]
+        assert "live response stream stopped" in error_msgs[0]["content"]
+        assert "WebUI process restarted" not in error_msgs[0]["content"]
         assert error_msgs[0].get("type") == "interrupted"
 
         # Pending fields fully cleared

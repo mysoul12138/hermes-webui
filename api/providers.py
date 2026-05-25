@@ -1995,7 +1995,7 @@ def get_providers() -> dict[str, Any]:
         # remote APIs or local model servers. Live catalogs are fetched on demand
         # by /api/models/live and /api/models/refresh.
         if pid == "openai-codex":
-            live_ids = []
+            live_ids: list[str] = []
             for mid in _read_visible_codex_cache_model_ids():
                 if mid not in live_ids:
                     live_ids.append(mid)

@@ -4,7 +4,7 @@ disappears immediately without a server restart or page reload.
 
 The bug
 -------
-Pre-fix, ``_removeProviderKey()`` in ``static/panels.js`` only called
+Pre-fix, ``_removeProviderKey()`` in the providers settings panel only called
 ``loadProvidersPanel()`` after deletion. That refreshed the providers card
 list but left these JS-side caches stale:
 
@@ -21,7 +21,7 @@ was triggering one.
 The fix
 -------
 ``static/commands.js`` exposes an ``_invalidateSlashModelCache()`` helper on
-``window``. ``static/panels.js`` calls it from a shared
+``window``. The decoupled provider module calls it from a shared
 ``_refreshModelDropdownsAfterProviderChange()`` helper after both the save
 and the remove paths, plus invokes ``populateModelDropdown()`` to rebuild
 the composer / Settings dropdowns and ``_configuredModelBadges`` map.
@@ -109,12 +109,14 @@ class TestSlashModelCacheInvalidator:
 
 
 class TestProviderRemoveInvalidatesDropdowns:
-    """The remove path in ``static/panels.js`` must trigger the dropdown-cache
+    """The provider remove path must trigger the dropdown-cache
     flush and rebuild — otherwise the dropped provider lingers in every
     /model dropdown until the page reloads (#1539)."""
 
+    PROVIDER_PANEL_SOURCE = "provider-config.js"
+
     def test_remove_path_invokes_dropdown_flush(self):
-        src = _read_static("panels.js")
+        src = _read_static(self.PROVIDER_PANEL_SOURCE)
         body = _extract_function_body(src, "async function _removeProviderKey(")
         assert "_refreshModelDropdownsAfterProviderChange()" in body, (
             "_removeProviderKey must call _refreshModelDropdownsAfterProviderChange() "
@@ -127,7 +129,7 @@ class TestProviderRemoveInvalidatesDropdowns:
         """Defense-in-depth: adding a key has the same staleness shape — the
         new provider's models won't show up until reload without this call.
         Bundled in #1539."""
-        src = _read_static("panels.js")
+        src = _read_static(self.PROVIDER_PANEL_SOURCE)
         body = _extract_function_body(src, "async function _saveProviderKey(")
         assert "_refreshModelDropdownsAfterProviderChange()" in body, (
             "_saveProviderKey must also call _refreshModelDropdownsAfterProviderChange() "
@@ -136,14 +138,14 @@ class TestProviderRemoveInvalidatesDropdowns:
         )
 
     def test_dropdown_flush_helper_defined(self):
-        src = _read_static("panels.js")
+        src = _read_static(self.PROVIDER_PANEL_SOURCE)
         assert "function _refreshModelDropdownsAfterProviderChange(" in src, (
             "_refreshModelDropdownsAfterProviderChange must be defined in "
-            "static/panels.js (single helper used by both save + remove paths)."
+            "the provider settings module (single helper used by both save + remove paths)."
         )
 
     def test_dropdown_flush_calls_slash_cache_invalidator(self):
-        src = _read_static("panels.js")
+        src = _read_static(self.PROVIDER_PANEL_SOURCE)
         body = _extract_function_body(src, "function _refreshModelDropdownsAfterProviderChange(")
         # Must invoke the commands.js helper — directly poking module-local
         # lets across module boundaries is brittle.
@@ -154,7 +156,7 @@ class TestProviderRemoveInvalidatesDropdowns:
         )
 
     def test_dropdown_flush_calls_populate_model_dropdown(self):
-        src = _read_static("panels.js")
+        src = _read_static(self.PROVIDER_PANEL_SOURCE)
         body = _extract_function_body(src, "function _refreshModelDropdownsAfterProviderChange(")
         assert "populateModelDropdown" in body, (
             "_refreshModelDropdownsAfterProviderChange must call "
@@ -165,7 +167,7 @@ class TestProviderRemoveInvalidatesDropdowns:
         )
 
     def test_dropdown_flush_reuses_shared_model_ready_promise(self):
-        src = _read_static("panels.js")
+        src = _read_static(self.PROVIDER_PANEL_SOURCE)
         body = _extract_function_body(src, "function _refreshModelDropdownsAfterProviderChange(")
         ensure_pos = body.index("typeof window._ensureModelDropdownReady")
         reset_pos = body.index("window._modelDropdownReady=null", ensure_pos)
@@ -176,7 +178,7 @@ class TestProviderRemoveInvalidatesDropdowns:
     def test_dropdown_flush_is_resilient_to_missing_modules(self):
         """If commands.js or ui.js failed to load, the providers panel must
         still update — the dropdown flush is best-effort (#1539)."""
-        src = _read_static("panels.js")
+        src = _read_static(self.PROVIDER_PANEL_SOURCE)
         body = _extract_function_body(src, "function _refreshModelDropdownsAfterProviderChange(")
         # Outer try/catch wraps the whole helper so a runtime error inside
         # populateModelDropdown / cache flush cannot surface as an unhandled
@@ -197,7 +199,7 @@ class TestProviderRemoveInvalidatesDropdowns:
         """populateModelDropdown is async; its result must not be awaited
         synchronously inside the helper — otherwise a slow /api/models would
         delay the providers panel re-render (#1539)."""
-        src = _read_static("panels.js")
+        src = _read_static(self.PROVIDER_PANEL_SOURCE)
         body = _extract_function_body(src, "function _refreshModelDropdownsAfterProviderChange(")
         # The helper itself is non-async (signature checked indirectly: the
         # source begins with 'function _refresh...', not 'async function').

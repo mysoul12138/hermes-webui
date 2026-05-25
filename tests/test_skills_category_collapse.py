@@ -9,12 +9,12 @@ import pytest
 
 
 def _readpanels():
-    with open(os.path.join('static', 'panels.js')) as f:
+    with open(os.path.join('static', 'panels.js'), encoding='utf-8') as f:
         return f.read()
 
 
 def _readcss():
-    with open(os.path.join('static', 'style.css')) as f:
+    with open(os.path.join('static', 'style.css'), encoding='utf-8') as f:
         return f.read()
 
 

@@ -85,6 +85,23 @@ async function api(path,opts={}){
   throw lastErr;
 }
 
+function recordClientSSEError(source, details={}){
+  try{
+    const payload={
+      event:'sse_error',
+      source:String(source||'unknown'),
+      ready_state:details.ready_state,
+      session_id:details.session_id||null,
+      stream_id:details.stream_id||null,
+      visibility_state:(typeof document!=='undefined'&&document.visibilityState)||'unknown',
+      online:(typeof navigator!=='undefined'&&typeof navigator.onLine==='boolean')?navigator.onLine:null,
+      url_path:(typeof location!=='undefined'&&location.pathname)||'/',
+      reason:details.reason||'EventSource.onerror',
+    };
+    void api('/api/client-events/log',{method:'POST',body:JSON.stringify(payload),timeoutMs:3000}).catch(()=>{});
+  }catch(_){}
+}
+
 // Persist/restore expanded directory state per workspace in localStorage
 function _wsExpandKey(){
   const ws=S.session&&S.session.workspace;
@@ -187,7 +204,7 @@ function _artifactCandidatesFromToolCall(tc){
     path = _normalizeArtifactPath(path);
     if(path) out.push({path, kind:source});
   };
-  if(args && typeof args === 'object'){
+  if(ARTIFACT_MUTATION_TOOLS.has(name) && args && typeof args === 'object'){
     for(const key of ['path','file_path','source','destination']) add(args[key]);
     if(Array.isArray(args.paths)) args.paths.forEach(p=>add(p));
     if(Array.isArray(args.edits)) args.edits.forEach(e=>add(e&&e.path));

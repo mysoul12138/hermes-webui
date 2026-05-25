@@ -169,17 +169,24 @@ class TestGetProviders:
         such as gpt-5.5-mini are not presented as currently available when the
         live account catalog excludes them (#1807).
         """
-        _install_fake_hermes_cli(monkeypatch)
         monkeypatch.setattr(profiles, "get_active_hermes_home", lambda: tmp_path)
-
-        fake_models = sys.modules["hermes_cli.models"]
-        fake_models.provider_model_ids = lambda pid: (
-            ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2"]
-            if pid == "openai-codex"
-            else []
-        )
-        codex_home = tmp_path / "empty-codex-home"
+        codex_home = tmp_path / "codex-home"
         codex_home.mkdir()
+        (codex_home / "models_cache.json").write_text(
+            json.dumps(
+                {
+                    "models": [
+                        {"slug": "gpt-5.5", "priority": 1},
+                        {"slug": "gpt-5.4", "priority": 2},
+                        {"slug": "gpt-5.4-mini", "priority": 3},
+                        {"slug": "gpt-5.3-codex", "priority": 4},
+                        {"slug": "gpt-5.2", "priority": 5},
+                        {"slug": "gpt-5.5-mini", "priority": 6, "visibility": "hidden"},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
         monkeypatch.setenv("CODEX_HOME", str(codex_home))
 
         old_cfg = dict(config.cfg)
