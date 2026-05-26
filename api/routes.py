@@ -32,12 +32,6 @@ from api.agent_sessions import (
     read_session_lineage_report,
 )
 from api.compression_anchor import visible_messages_for_anchor
-from api.conversation_projection import (
-    attach_session_projection_fields,
-    attach_session_projection_metadata,
-    attach_session_projection_metadata_to_rows,
-)
-from api.conversation_projection.session_payload import build_route_visible_session_projection_rows
 from api.session_events import (
     publish_session_list_changed,
     subscribe_session_events,
@@ -871,15 +865,6 @@ _PROVIDER_ALIASES = {
     "gemini": "google",
     "openai-codex": "openai",
 }
-
-# OpenAI-compatible /v1/models endpoints for live model discovery.
-# Used as fallback when hermes_cli.provider_model_ids() is unavailable or
-# returns [] for a provider (#871).  Kept at module level so the dict is
-# built once, not reconstructed per request.
-def _active_profile_name_for_session_projection() -> str:
-    from api.profiles import get_active_profile_name
-
-    return get_active_profile_name()
 
 from api.config import (
     STATE_DIR,
@@ -1955,68 +1940,6 @@ def _lookup_cli_session_metadata(session_id: str) -> dict:
     return {}
 
 
-def _visible_session_projection_context(*, parsed=None, all_profiles=None):
-    """Return the same raw row family used by list/search projection metadata."""
-    return _visible_session_projection_rows(
-        parsed=parsed,
-        all_profiles=all_profiles,
-    ).projection_context
-
-
-def _visible_session_projection_rows(
-    *,
-    parsed=None,
-    webui_rows=None,
-    settings=None,
-    cli_rows=None,
-    all_profiles=None,
-):
-    return build_route_visible_session_projection_rows(
-        all_sessions_loader=all_sessions,
-        get_cli_sessions_loader=get_cli_sessions,
-        load_settings_loader=load_settings,
-        get_active_profile_name=_active_profile_name_for_session_projection,
-        all_profiles_parser=_all_profiles_query_flag,
-        is_cli_session_for_settings=_is_cli_session_for_settings,
-        profiles_match=_profiles_match,
-        is_cli_session_row_visible=is_cli_session_row_visible,
-        hide_from_default_sidebar=_hide_from_default_sidebar,
-        merge_cli_sidebar_metadata=_merge_cli_sidebar_metadata,
-        keep_latest_messaging_session_per_source=_keep_latest_messaging_session_per_source,
-        cap_recent_cli_sessions=_cap_recent_cli_sessions,
-        parsed=parsed,
-        webui_rows=webui_rows,
-        settings=settings,
-        cli_rows=cli_rows,
-        all_profiles=all_profiles,
-        cli_cap=CLI_VISIBLE_SESSION_CAP,
-    )
-
-
-def _attach_projection_metadata(
-    row: dict,
-    *,
-    parsed=None,
-    all_profiles=None,
-) -> dict:
-    return attach_session_projection_metadata(
-        row,
-        _visible_session_projection_context(parsed=parsed, all_profiles=all_profiles),
-    )
-
-
-def _attach_projection_metadata_to_rows(
-    rows: list[dict],
-    *,
-    parsed=None,
-    all_profiles=None,
-) -> list[dict]:
-    return attach_session_projection_metadata_to_rows(
-        rows,
-        _visible_session_projection_context(parsed=parsed, all_profiles=all_profiles),
-    )
-
-
 def _messaging_session_identity(session: dict, raw_source: str) -> str:
     metadata = _lookup_gateway_session_identity(session.get("session_id"))
     session_key = _safe_first(
@@ -2448,7 +2371,6 @@ from api.models import (
     _write_session_index,
     SESSION_INDEX_FILE,
     _active_state_db_path,
-    _hide_from_default_sidebar,
     load_projects,
     save_projects,
     import_cli_session,
@@ -2495,7 +2417,6 @@ from api.providers import (
 from api import provider_routes
 from api.provider_route_registry import register_provider_routes
 from api.route_registry import NO_ROUTE, RouteRegistry
-from api.session_projection_route_registry import register_session_projection_routes
 from api.tts_route_registry import register_tts_routes
 from api.weixin_route_registry import register_weixin_routes
 from api.onboarding import (
@@ -2514,7 +2435,6 @@ _ROUTE_REGISTRY = RouteRegistry()
 register_provider_routes(_ROUTE_REGISTRY)
 register_tts_routes(_ROUTE_REGISTRY)
 register_weixin_routes(_ROUTE_REGISTRY)
-register_session_projection_routes(_ROUTE_REGISTRY)
 
 
 def _route_context():
@@ -3717,8 +3637,7 @@ def handle_get(handler, parsed) -> bool:
 
     # Registered exact-path business routes:
     # "/api/hermes/weixin/qrcode", "/api/hermes/weixin/qrcode/status",
-    # "/api/models/live", "/api/providers", "/api/sessions",
-    # "/api/sessions/search".
+    # "/api/models/live", "/api/providers".
     registered = _ROUTE_REGISTRY.dispatch_get(handler, parsed, _route_context())
     if registered is not NO_ROUTE:
         return registered
@@ -3894,6 +3813,90 @@ def handle_get(handler, parsed) -> bool:
 
     if parsed.path == "/api/models":
         return j(handler, get_available_models())
+
+    if parsed.path == "/api/sessions":
+        diag = RequestDiagnostics.maybe_start("GET", parsed.path, logger=logger)
+        try:
+            diag.stage("all_sessions")
+            webui_sessions = all_sessions(diag=diag)
+            diag.stage("reconcile_stale_stream_state")
+            if _reconcile_stale_stream_state_for_session_rows(webui_sessions):
+                diag.stage("all_sessions_after_stale_stream_reconcile")
+                webui_sessions = all_sessions(diag=diag)
+            diag.stage("load_settings")
+            settings = load_settings()
+            show_cli_sessions = bool(settings.get("show_cli_sessions"))
+            if show_cli_sessions:
+                diag.stage("get_cli_sessions")
+                cli = get_cli_sessions()
+                diag.stage("merge_cli_sessions")
+                cli_by_id = {s["session_id"]: s for s in cli}
+                for s in webui_sessions:
+                    meta = cli_by_id.get(s.get("session_id"))
+                    if not meta:
+                        continue
+                    if _is_messaging_session_record(meta):
+                        s.update(_merge_cli_sidebar_metadata(s, meta))
+                        if s.get("session_id") != meta.get("session_id"):
+                            s["session_id"] = meta.get("session_id")
+                    else:
+                        for key in ("source_tag", "raw_source", "session_source", "source_label"):
+                            if not s.get(key) and meta.get(key):
+                                s[key] = meta[key]
+                webui_sessions = [s for s in webui_sessions if is_cli_session_row_visible(s)]
+                webui_ids = {s["session_id"] for s in webui_sessions}
+                from api.models import _hide_from_default_sidebar as _cron_hide
+                deduped_cli = [s for s in cli if s["session_id"] not in webui_ids and is_cli_session_row_visible(s) and not _cron_hide(s)]
+            else:
+                diag.stage("filter_webui_sessions")
+                webui_sessions = [s for s in webui_sessions if not _is_cli_session_for_settings(s)]
+                deduped_cli = []
+            diag.stage("sort_sessions")
+            merged = webui_sessions + deduped_cli
+            merged.sort(
+                key=lambda s: s.get("last_message_at") or s.get("updated_at", 0) or 0,
+                reverse=True,
+            )
+            diag.stage("active_profile")
+            from api.profiles import get_active_profile_name
+            active_profile = get_active_profile_name()
+            all_profiles = _all_profiles_query_flag(parsed)
+            diag.stage("profile_filter")
+            if all_profiles:
+                scoped = merged
+                other_profile_count = 0
+            else:
+                scoped = [s for s in merged if _profiles_match(s.get("profile"), active_profile)]
+                other_profile_count = len(merged) - len(scoped)
+            diag.stage("messaging_dedupe")
+            scoped = _keep_latest_messaging_session_per_source(
+                scoped,
+                show_previous_messaging_sessions=bool(
+                    settings.get("show_previous_messaging_sessions")
+                ),
+            )
+            if show_cli_sessions:
+                diag.stage("cli_cap")
+                scoped = _cap_recent_cli_sessions(scoped, cli_cap=CLI_VISIBLE_SESSION_CAP)
+            diag.stage("redact_sessions")
+            safe_merged = []
+            for s in scoped:
+                item = dict(s)
+                if isinstance(item.get("title"), str):
+                    item["title"] = _redact_text(item["title"])
+                safe_merged.append(item)
+            diag.stage("response_write")
+            return j(handler, {
+                "sessions": safe_merged,
+                "cli_count": len(deduped_cli),
+                "all_profiles": all_profiles,
+                "active_profile": active_profile,
+                "other_profile_count": other_profile_count,
+                "server_time": time.time(),
+                "server_tz": time.strftime("%z"),
+            })
+        finally:
+            diag.finish()
 
     # ── Auxiliary models (GET/POST) ──
     if parsed.path == "/api/model/auxiliary":
@@ -4235,7 +4238,6 @@ def handle_get(handler, parsed) -> bool:
             if effective_provider:
                 raw["model_provider"] = effective_provider
             redact = redact_session_data(raw)
-            _attach_projection_metadata(redact)
             _t5 = _time.monotonic()
             resp = j(handler, {"session": redact})
             _t6 = _time.monotonic()
@@ -4279,7 +4281,6 @@ def handle_get(handler, parsed) -> bool:
                 }
                 sess = _merge_cli_sidebar_metadata(sess, cli_meta)
                 redact = redact_session_data(sess)
-                _attach_projection_metadata(redact)
                 return j(handler, {"session": redact})
             return bad(handler, "Session not found", 404)
 
@@ -4368,6 +4369,9 @@ def handle_get(handler, parsed) -> bool:
                 "prefix": prefix,
             },
         )
+
+    if parsed.path == "/api/sessions/search":
+        return _handle_sessions_search(handler, parsed)
 
     if parsed.path == "/api/list":
         return _handle_list_dir(handler, parsed)
@@ -6669,9 +6673,48 @@ def _handle_session_export(handler, parsed):
 
 
 def _handle_sessions_search(handler, parsed):
-    from api.session_projection_route_registry import _search_sessions
-
-    return _search_sessions(handler, parsed, _route_context())
+    qs = parse_qs(parsed.query)
+    q = qs.get("q", [""])[0].lower().strip()
+    content_search = qs.get("content", ["1"])[0] == "1"
+    depth = int(qs.get("depth", ["5"])[0])
+    if not q:
+        safe_sessions = []
+        for s in all_sessions():
+            item = dict(s)
+            if isinstance(item.get("title"), str):
+                item["title"] = _redact_text(item["title"])
+            safe_sessions.append(item)
+        return j(handler, {"sessions": safe_sessions})
+    results = []
+    for s in all_sessions():
+        title_match = q in (s.get("title") or "").lower()
+        if title_match:
+            item = dict(s, match_type="title")
+            if isinstance(item.get("title"), str):
+                item["title"] = _redact_text(item["title"])
+            results.append(item)
+            continue
+        if content_search:
+            try:
+                sess = get_session(s["session_id"])
+                msgs = sess.messages[:depth] if depth else sess.messages
+                for m in msgs:
+                    c = m.get("content") or ""
+                    if isinstance(c, list):
+                        c = " ".join(
+                            p.get("text", "")
+                            for p in c
+                            if isinstance(p, dict) and p.get("type") == "text"
+                        )
+                    if q in str(c).lower():
+                        item = dict(s, match_type="content")
+                        if isinstance(item.get("title"), str):
+                            item["title"] = _redact_text(item["title"])
+                        results.append(item)
+                        break
+            except (KeyError, Exception):
+                pass
+    return j(handler, {"sessions": results, "query": q, "count": len(results)})
 
 
 def _handle_list_dir(handler, parsed):
