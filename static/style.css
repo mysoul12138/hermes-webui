@@ -625,6 +625,45 @@
   :root.dark[data-skin="pure-ink"] .thinking-card-body,
   :root.dark[data-skin="pure-ink"] .tool-card-detail{background:#242628;border-top-color:var(--border);}
   :root.dark[data-skin="pure-ink"] .tool-card-result pre{background:#202224;border:1px solid var(--border-subtle);border-radius:8px;color:var(--pre-text);padding:8px 10px;}
+  :root.dark[data-skin="pure-ink"] .send-btn:not(.stop):not(.interrupt):not(.steer){background:#3b3d40;border:1px solid #565a60;color:#f7f7f7;box-shadow:0 2px 8px rgba(0,0,0,.18);}
+  :root.dark[data-skin="pure-ink"] .send-btn:not(.stop):not(.interrupt):not(.steer):hover{background:#4a4d51;border-color:#6a6f76;color:#ffffff;box-shadow:0 4px 14px rgba(0,0,0,.24);}
+  :root.dark[data-skin="pure-ink"] .send-btn:not(.stop):not(.interrupt):not(.steer) svg,
+  :root.dark[data-skin="pure-ink"] .send-btn:not(.stop):not(.interrupt):not(.steer) [data-lucide]{color:currentColor;stroke:currentColor;}
+  :root.dark[data-skin="pure-ink"] #mainSettings .theme-pick-btn.active,
+  :root.dark[data-skin="pure-ink"] #mainSettings .skin-pick-btn.active,
+  :root.dark[data-skin="pure-ink"] #mainSettings .font-size-pick-btn.active{background:#3b3d40!important;border-color:#6a6f76!important;color:#f7f7f7!important;box-shadow:inset 0 0 0 1px #565a60!important;}
+  :root.dark[data-skin="pure-ink"] #mainSettings .theme-pick-btn.active span,
+  :root.dark[data-skin="pure-ink"] #mainSettings .skin-pick-btn.active span,
+  :root.dark[data-skin="pure-ink"] #mainSettings .font-size-pick-btn.active span{color:#f7f7f7!important;}
+  :root.dark[data-skin="pure-ink"] #mainSettings .settings-btn,
+  :root.dark[data-skin="pure-ink"] #mainSettings .sm-btn[onclick^="saveSettings"]{background:#3b3d40;border-color:#565a60;color:#f7f7f7;}
+  :root.dark[data-skin="pure-ink"] #mainSettings .settings-btn:hover,
+  :root.dark[data-skin="pure-ink"] #mainSettings .sm-btn[onclick^="saveSettings"]:hover{background:#4a4d51;border-color:#6a6f76;color:#ffffff;}
+  :root.dark[data-skin="pure-ink"] .app-dialog-btn.confirm,
+  :root.dark[data-skin="pure-ink"] .approval-btn.once,
+  :root.dark[data-skin="pure-ink"] .approval-btn.session,
+  :root.dark[data-skin="pure-ink"] .clarify-submit,
+  :root.dark[data-skin="pure-ink"] .provider-card-btn-primary,
+  :root.dark[data-skin="pure-ink"] .channel-save-btn,
+  :root.dark[data-skin="pure-ink"] .status-card-session-copy.copied,
+  :root.dark[data-skin="pure-ink"] .msg-action-btn.copied,
+  :root.dark[data-skin="pure-ink"] .panel-head-btn.primary{background:#3b3d40!important;border-color:#565a60!important;color:#f7f7f7!important;box-shadow:0 2px 8px rgba(0,0,0,.18)!important;}
+  :root.dark[data-skin="pure-ink"] .app-dialog-btn.confirm:hover,
+  :root.dark[data-skin="pure-ink"] .approval-btn.once:hover,
+  :root.dark[data-skin="pure-ink"] .approval-btn.session:hover,
+  :root.dark[data-skin="pure-ink"] .clarify-submit:hover,
+  :root.dark[data-skin="pure-ink"] .provider-card-btn-primary:hover,
+  :root.dark[data-skin="pure-ink"] .channel-save-btn:hover,
+  :root.dark[data-skin="pure-ink"] .panel-head-btn.primary:hover{background:#4a4d51!important;border-color:#6a6f76!important;color:#ffffff!important;}
+  :root.dark[data-skin="pure-ink"] .app-dialog-btn.confirm svg,
+  :root.dark[data-skin="pure-ink"] .approval-btn.once svg,
+  :root.dark[data-skin="pure-ink"] .approval-btn.session svg,
+  :root.dark[data-skin="pure-ink"] .clarify-submit svg,
+  :root.dark[data-skin="pure-ink"] .provider-card-btn-primary svg,
+  :root.dark[data-skin="pure-ink"] .channel-save-btn svg,
+  :root.dark[data-skin="pure-ink"] .status-card-session-copy.copied svg,
+  :root.dark[data-skin="pure-ink"] .msg-action-btn.copied svg,
+  :root.dark[data-skin="pure-ink"] .panel-head-btn.primary svg{color:currentColor!important;stroke:currentColor!important;}
 
   /* #594: app-dialog light mode overrides — base styles use hardcoded dark gradients */
   :root:not(.dark) .app-dialog{

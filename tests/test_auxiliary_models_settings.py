@@ -10,6 +10,7 @@ ROOT = Path(__file__).parent.parent
 PANELS_JS = (ROOT / "static" / "panels.js").read_text(encoding="utf-8")
 INDEX_HTML = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
 I18N_JS = (ROOT / "static" / "i18n.js").read_text(encoding="utf-8")
+STYLE_CSS = (ROOT / "static" / "style.css").read_text(encoding="utf-8")
 
 
 class TestAuxiliaryModelsHTML:
@@ -45,6 +46,77 @@ class TestAuxiliaryModelsHTML:
         """The auxiliary models card label must use data-i18n attribute."""
         assert 'data-i18n="settings_label_auxiliary_models"' in INDEX_HTML, (
             "Missing data-i18n='settings_label_auxiliary_models' on auxiliary card label"
+        )
+
+
+class TestAuxiliaryModelsThemeCSS:
+    """Theme regressions for auxiliary model controls in Settings."""
+
+    def _pure_ink_dark_rule(self, selector, chars=360):
+        idx = STYLE_CSS.find(selector)
+        assert idx >= 0, f"Missing Pure Ink dark override for {selector}"
+        return STYLE_CSS[idx:idx + chars]
+
+    def test_pure_ink_dark_settings_buttons_keep_text_contrast(self):
+        """Pure Ink dark uses a light accent; settings buttons need a dark surface."""
+        rule = self._pure_ink_dark_rule(':root.dark[data-skin="pure-ink"] #mainSettings .settings-btn')
+        assert "background:#3b3d40" in rule, (
+            "Pure Ink dark settings buttons must not inherit near-white --accent as their background"
+        )
+        assert "color:#f7f7f7" in rule, (
+            "Pure Ink dark settings buttons must keep readable light text on the dark button surface"
+        )
+
+    def test_pure_ink_dark_send_button_keep_icon_contrast(self):
+        """The normal send button must not become a white circle with a low-contrast icon."""
+        rule = self._pure_ink_dark_rule(':root.dark[data-skin="pure-ink"] .send-btn:not(.stop):not(.interrupt):not(.steer)', 760)
+        assert "background:#3b3d40" in rule, (
+            "Pure Ink dark send button must use a dark neutral surface instead of the near-white accent"
+        )
+        assert "color:#f7f7f7" in rule, (
+            "Pure Ink dark send button must keep the send icon readable on the dark button surface"
+        )
+        assert "stroke:currentColor" in rule, (
+            "Pure Ink dark send button icons must inherit the readable foreground color"
+        )
+
+    def test_pure_ink_dark_picker_active_buttons_keep_check_contrast(self):
+        """Appearance picker active/check buttons need the same dark neutral selected state."""
+        rule = self._pure_ink_dark_rule(':root.dark[data-skin="pure-ink"] #mainSettings .theme-pick-btn.active', 860)
+        assert "background:#3b3d40!important" in rule, (
+            "Pure Ink dark active picker cards must not rely on a near-white accent selected state"
+        )
+        assert "color:#f7f7f7!important" in rule, (
+            "Pure Ink dark active picker cards must keep check/label text readable"
+        )
+        assert ':root.dark[data-skin="pure-ink"] #mainSettings .skin-pick-btn.active span' in rule, (
+            "Pure Ink dark active skin picker labels must override inline span color"
+        )
+        assert "span{color:#f7f7f7!important" in rule, (
+            "Pure Ink dark active picker labels must use the readable foreground color"
+        )
+
+    def test_pure_ink_dark_confirm_and_saved_check_buttons_keep_contrast(self):
+        """Confirm/save/checkmark states must not render as a white button with a white check."""
+        rule = self._pure_ink_dark_rule(':root.dark[data-skin="pure-ink"] .app-dialog-btn.confirm', 1400)
+        for selector in (
+            ':root.dark[data-skin="pure-ink"] .clarify-submit',
+            ':root.dark[data-skin="pure-ink"] .provider-card-btn-primary',
+            ':root.dark[data-skin="pure-ink"] .channel-save-btn',
+            ':root.dark[data-skin="pure-ink"] .status-card-session-copy.copied',
+            ':root.dark[data-skin="pure-ink"] .msg-action-btn.copied',
+            ':root.dark[data-skin="pure-ink"] .panel-head-btn.primary',
+        ):
+            assert selector in rule, f"Missing Pure Ink dark contrast override for {selector}"
+        assert "background:#3b3d40!important" in rule, (
+            "Pure Ink dark confirm/save/check buttons must use a dark neutral surface"
+        )
+        assert "color:#f7f7f7!important" in rule, (
+            "Pure Ink dark confirm/save/check buttons must keep the check icon readable"
+        )
+        icon_rule = self._pure_ink_dark_rule(':root.dark[data-skin="pure-ink"] .app-dialog-btn.confirm svg', 900)
+        assert "stroke:currentColor!important" in icon_rule, (
+            "Pure Ink dark confirm/save/check icons must inherit the readable foreground color"
         )
 
 
