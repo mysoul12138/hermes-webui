@@ -42,10 +42,6 @@ function _ensureProviderRefreshButton(provider){
   const actions=saveBtn?saveBtn.closest('.app-dialog-actions'):null;
   if(!actions) return;
   let refreshBtn=$('providerConfigRefreshModelsBtn');
-  if(!provider||!provider.id){
-    if(refreshBtn) refreshBtn.remove();
-    return;
-  }
   if(!refreshBtn){
     refreshBtn=document.createElement('button');
     refreshBtn.id='providerConfigRefreshModelsBtn';
@@ -57,8 +53,9 @@ function _ensureProviderRefreshButton(provider){
     refreshBtn.style.gap='6px';
     actions.insertBefore(refreshBtn, actions.firstChild);
   }
+  refreshBtn.hidden=false;
   refreshBtn.innerHTML=_providerModelRefreshIcon()+' '+esc(t('providers_refresh_models'));
-  refreshBtn.onclick=()=>_refreshProviderModels(provider.id, refreshBtn);
+  refreshBtn.onclick=()=>_refreshProviderModels(provider||{id:''}, refreshBtn);
 }
 
 function _ensureProviderModalBindings(){
