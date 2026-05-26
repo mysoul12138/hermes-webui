@@ -143,9 +143,41 @@ def _dedupe_model_entries(models: Any) -> list[dict[str, str]]:
     return normalized
 
 
+def _derive_provider_name_from_base_url(base_url: str) -> str:
+    raw = str(base_url or "").strip().rstrip("/")
+    if not raw:
+        return ""
+    host = re.sub(r"^https?://", "", raw, flags=re.IGNORECASE)
+    host = host.split("/", 1)[0].strip().lower()
+    host = re.sub(r"^www\.", "", host)
+    if not host:
+        return ""
+    labels = [part for part in host.split(":", 1)[0].split(".") if part]
+    if not labels:
+        return ""
+    generic = {"api", "chat", "llm", "model", "models", "openai", "v1", "v2", "www"}
+    candidate = ""
+    if len(labels) >= 3 and len(labels[-1]) == 2:
+        candidate = labels[-3]
+    elif len(labels) >= 2:
+        candidate = labels[-2]
+    else:
+        candidate = labels[0]
+    if candidate in generic:
+        for part in reversed(labels[:-1] or labels):
+            if part not in generic:
+                candidate = part
+                break
+    candidate = re.sub(r"[-_]+", " ", candidate)
+    candidate = re.sub(r"\s+", " ", candidate).strip()
+    return candidate.title()
+
+
 def _validate_custom_provider_payload(data: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
     name = str(data.get("name") or data.get("display_name") or data.get("provider") or "").strip()
     base_url = str(data.get("base_url") or "").strip().rstrip("/")
+    if not name and base_url:
+        name = _derive_provider_name_from_base_url(base_url)
     model = str(data.get("default_model") or data.get("model") or "").strip()
     if not name:
         raise ValueError("name is required")

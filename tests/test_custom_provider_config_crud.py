@@ -29,7 +29,7 @@ def test_create_custom_provider_writes_providers_slug(monkeypatch, tmp_path):
         {
             "name": "Math Model",
             "base_url": "https://llm.mathmodel.tech/v1",
-            "api_key": "sk-test-custom-provider",
+            "api_key": "sk-tes...ider",
             "default_model": "deepseek-ai/DeepSeek-V4-Pro",
             "context_length": 128000,
         }
@@ -49,11 +49,34 @@ def test_create_custom_provider_writes_providers_slug(monkeypatch, tmp_path):
         "name": "Math Model",
         "base_url": "https://llm.mathmodel.tech/v1",
         "api_mode": "openai_compatible",
-        "api_key": "sk-test-custom-provider",
+        "api_key": "sk-tes...ider",
         "model": "deepseek-ai/DeepSeek-V4-Pro",
         "models": ["deepseek-ai/DeepSeek-V4-Pro"],
         "context_length": 128000,
     }
+
+
+def test_create_custom_provider_uses_base_url_when_name_missing(monkeypatch, tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump({"providers": {}}), encoding="utf-8")
+    monkeypatch.setattr(cfg_mod, "_get_config_path", lambda: config_path)
+    monkeypatch.setattr(providers, "reload_config", lambda: None)
+    monkeypatch.setattr(providers, "invalidate_provider_models_cache", lambda *args, **kwargs: None)
+
+    result = providers.upsert_custom_provider_config(
+        {
+            "name": "",
+            "base_url": "https://llm.mathmodel.tech/v1",
+            "api_key": "sk-tes...ider",
+            "default_model": "deepseek-ai/DeepSeek-V4-Pro",
+            "context_length": 128000,
+        }
+    )
+
+    assert result["ok"] is True
+    assert result["display_name"] == "Mathmodel"
+    data = _read(config_path)
+    assert data["providers"]["mathmodel"]["name"] == "Mathmodel"
 
 
 def test_create_custom_provider_uses_provider_cache_invalidation(monkeypatch, tmp_path):

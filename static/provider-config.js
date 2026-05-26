@@ -11,6 +11,32 @@ function _providerModelRefreshIcon(){
   return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>';
 }
 
+function _deriveProviderNameFromBaseUrl(baseUrl){
+  const raw=String(baseUrl||'').trim();
+  if(!raw) return '';
+  try{
+    const parsed=new URL(raw, window.location.origin);
+    const host=String(parsed.hostname||'').replace(/^www\./,'');
+    const pathParts=String(parsed.pathname||'').split('/').filter(Boolean);
+    const hostStem=host.split('.').filter(Boolean).join(' ');
+    const pathStem=pathParts.length?pathParts[pathParts.length-1].replace(/[-_]+/g,' '):'';
+    const name=(pathStem||hostStem||raw).replace(/\b(api|v\d+|openai|chat|model|models|llm|server)\b/gi,' ').replace(/[\W_]+/g,' ').replace(/\s+/g,' ').trim();
+    return name ? name.replace(/\b\w/g, ch => ch.toUpperCase()) : raw;
+  }catch(_e){
+    return raw.replace(/^https?:\/\//i,'').replace(/\/+$/,'').split('/')[0].replace(/^www\./,'') || raw;
+  }
+}
+
+function _syncProviderNameFromBaseUrl(){
+  const nameInput=$('providerConfigName');
+  const baseUrlInput=$('providerConfigBaseUrl');
+  if(!nameInput||!baseUrlInput) return;
+  const current=String(nameInput.value||'').trim();
+  if(current) return;
+  const derived=_deriveProviderNameFromBaseUrl(baseUrlInput.value);
+  if(derived) nameInput.value=derived;
+}
+
 function _ensureProviderRefreshButton(provider){
   const saveBtn=$('providerConfigSaveBtn');
   const actions=saveBtn?saveBtn.closest('.app-dialog-actions'):null;
@@ -33,6 +59,20 @@ function _ensureProviderRefreshButton(provider){
   }
   refreshBtn.innerHTML=_providerModelRefreshIcon()+' '+esc(t('providers_refresh_models'));
   refreshBtn.onclick=()=>_refreshProviderModels(provider.id, refreshBtn);
+}
+
+function _ensureProviderModalBindings(){
+  const nameInput=$('providerConfigName');
+  const baseUrlInput=$('providerConfigBaseUrl');
+  if(baseUrlInput&&!baseUrlInput.dataset.providerAutoNameBound){
+    baseUrlInput.dataset.providerAutoNameBound='1';
+    baseUrlInput.addEventListener('input',_syncProviderNameFromBaseUrl);
+    baseUrlInput.addEventListener('change',_syncProviderNameFromBaseUrl);
+  }
+  if(nameInput&&!nameInput.dataset.providerAutoNameBound){
+    nameInput.dataset.providerAutoNameBound='1';
+    nameInput.addEventListener('input',()=>{ if(String(nameInput.value||'').trim()) nameInput.dataset.providerAutoNamed='0'; });
+  }
 }
 
 function _normalizeProviderModels(models){
@@ -192,6 +232,7 @@ function openProviderConfigModal(provider){
     title.textContent=t(titleKey);
     title.setAttribute('data-i18n', titleKey);
   }
+  _ensureProviderModalBindings();
   $('providerConfigOriginalId').value=editing?provider.id:'';
   $('providerConfigName').value=editing?(provider.name||provider.display_name||''):'';
   $('providerConfigBaseUrl').value=editing?(provider.base_url||''):'';
@@ -206,12 +247,18 @@ function openProviderConfigModal(provider){
   $('providerConfigModel').value=editing?(provider.default_model||''):'';
   _setProviderModelOptions(editing?(provider.models||[]):[]);
   $('providerConfigContext').value=editing&&provider.context_length?String(provider.context_length):'';
+  _syncProviderNameFromBaseUrl();
   _setProviderModalStatus();
   _ensureProviderConfigApiKeyToggle();
   _ensureProviderRefreshButton(provider);
   overlay.style.display='flex';
   overlay.setAttribute('aria-hidden','false');
-  setTimeout(()=>{try{$('providerConfigName').focus();}catch(_e){}},0);
+  setTimeout(()=>{
+    try{
+      _ensureProviderRefreshButton(provider);
+      $('providerConfigName').focus();
+    }catch(_e){}
+  },0);
 }
 
 function closeProviderConfigModal(){
