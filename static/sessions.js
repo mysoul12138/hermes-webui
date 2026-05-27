@@ -2913,7 +2913,7 @@ function renderSessionListFromCache(){
   // in _profiles_match, and a strict-equality client filter would reject those
   // rows incorrectly. So we trust the wire data and skip the redundant client
   // filter entirely.
-  const profileFiltered=withMessages;
+  const profileFiltered=_activeProject?withMessages:sourceFiltered;
   const defaultVisible=profileFiltered.filter(s=>_activeProject||!_isDefaultHiddenSession(s));
   // Filter by active project. NO_PROJECT_FILTER sentinel asks for sessions
   // with no project_id; otherwise filter to the matching project_id, or
