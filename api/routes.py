@@ -3919,11 +3919,12 @@ def handle_get(handler, parsed) -> bool:
         diag = RequestDiagnostics.maybe_start("GET", parsed.path, logger=logger)
         try:
             diag.stage("all_sessions")
-            webui_sessions = all_sessions(diag=diag)
+            include_cron = 'include_cron' in parse_qs(parsed.query)
+            webui_sessions = all_sessions(diag=diag, include_cron=include_cron)
             diag.stage("reconcile_stale_stream_state")
             if _reconcile_stale_stream_state_for_session_rows(webui_sessions):
                 diag.stage("all_sessions_after_stale_stream_reconcile")
-                webui_sessions = all_sessions(diag=diag)
+                webui_sessions = all_sessions(diag=diag, include_cron=include_cron)
             diag.stage("load_settings")
             settings = load_settings()
             show_cli_sessions = bool(settings.get("show_cli_sessions"))
@@ -3947,7 +3948,10 @@ def handle_get(handler, parsed) -> bool:
                 webui_sessions = [s for s in webui_sessions if is_cli_session_row_visible(s)]
                 webui_ids = {s["session_id"] for s in webui_sessions}
                 from api.models import _hide_from_default_sidebar as _cron_hide
-                deduped_cli = [s for s in cli if s["session_id"] not in webui_ids and is_cli_session_row_visible(s) and not _cron_hide(s)]
+                if include_cron:
+                    deduped_cli = [s for s in cli if s["session_id"] not in webui_ids and is_cli_session_row_visible(s)]
+                else:
+                    deduped_cli = [s for s in cli if s["session_id"] not in webui_ids and is_cli_session_row_visible(s) and not _cron_hide(s)]
             else:
                 diag.stage("filter_webui_sessions")
                 webui_sessions = [s for s in webui_sessions if not _is_cli_session_for_settings(s)]

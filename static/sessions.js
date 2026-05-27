@@ -409,6 +409,8 @@ function _markPollingCompletionUnreadTransitions(sessions) {
     const completedPersistedObservedStream = Boolean(observedStreaming && !isStreaming);
     if ((completedObservedStream || completedPersistedObservedStream || completedWithNewMessages) && !_isSessionActivelyViewedForList(sid)) {
       _markSessionCompletionUnread(sid, s.message_count);
+    } else if (_isSessionActivelyViewedForList(sid)) {
+      _setSessionViewedCount(sid, messageCount);
     }
     _sessionStreamingById.set(sid, isStreaming);
     if (isStreaming) {
@@ -2270,8 +2272,9 @@ async function renderSessionList(opts={}){
   try{
     if(!($('sessionSearch').value||'').trim()) _contentSearchResults = [];
     const allProfilesQS = _showAllProfiles ? '?all_profiles=1' : '';
+    const includeCronQS = _activeProject ? (allProfilesQS ? '&' : '?') + 'include_cron=1' : '';
     const [sessData, projData] = await Promise.all([
-      api('/api/sessions' + allProfilesQS),
+      api('/api/sessions' + allProfilesQS + includeCronQS),
       api('/api/projects' + allProfilesQS),
     ]);
     // Discard stale response — a newer renderSessionList() call superseded us.
@@ -3268,9 +3271,11 @@ function renderSessionListFromCache(){
   if(_sessionSourceFilter==='cli' && !window._showCliSessions && cliSessionCount===0){
     _sessionSourceFilter='webui';
   }
-  const sourceFiltered = _sessionSourceFilter==='cli'
-    ? withMessages.filter(s=>_isCliSession(s))
-    : withMessages.filter(s=>!_isCliSession(s));
+  const sourceFiltered = _activeProject
+    ? withMessages
+    : (_sessionSourceFilter==='cli'
+        ? withMessages.filter(s=>_isCliSession(s))
+        : withMessages.filter(s=>!_isCliSession(s)));
   // The server is authoritative for profile scoping (#1611): it filters by
   // active profile when no query param is set, and returns the aggregate when
   // we send ?all_profiles=1. The renamed-root cross-alias (a row tagged

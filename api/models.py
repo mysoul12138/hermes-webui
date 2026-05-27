@@ -2153,6 +2153,13 @@ def new_session(workspace=None, model=None, profile=None, model_provider=None, p
         s.save()
     return s
 
+def _is_cron_session(s: dict) -> bool:
+    """Return True if the session is a cron session."""
+    sid = str(s.get('session_id') or '')
+    source = s.get('source_tag') or s.get('source')
+    return source == 'cron' or sid.startswith('cron_')
+
+
 def _hide_from_default_sidebar(session: dict) -> bool:
     """Return True for internal/background sessions hidden from the default list."""
     sid = str(session.get('session_id') or '')
@@ -2314,7 +2321,7 @@ def _diag_stage(diag, name: str) -> None:
             pass
 
 
-def all_sessions(diag=None):
+def all_sessions(diag=None, include_cron=False):
     _diag_stage(diag, "all_sessions.active_streams")
     active_stream_ids = _active_stream_ids()
     # Phase C: try index first for O(1) read; fall back to full scan
@@ -2401,7 +2408,10 @@ def all_sessions(diag=None):
                 and not s.get('worktree_path')
             )]
             result = _prefer_fuller_snapshots_for_sidebar(result)
-            result = [s for s in result if not _hide_from_default_sidebar(s)]
+            if include_cron:
+                result = [s for s in result if not _hide_from_default_sidebar(s) or _is_cron_session(s)]
+            else:
+                result = [s for s in result if not _hide_from_default_sidebar(s)]
             _strip_sidebar_internal_flags(result)
             # Backfill: sessions created before Sprint 22 have no profile tag.
             # Attribute them to 'default' so the client profile filter works correctly.
@@ -2439,7 +2449,10 @@ def all_sessions(diag=None):
         and not getattr(s, 'worktree_path', None)
     )]
     result = _prefer_fuller_snapshots_for_sidebar(result)
-    result = [s for s in result if not _hide_from_default_sidebar(s)]
+    if include_cron:
+        result = [s for s in result if not _hide_from_default_sidebar(s) or _is_cron_session(s)]
+    else:
+        result = [s for s in result if not _hide_from_default_sidebar(s)]
     _strip_sidebar_internal_flags(result)
     for s in result:
         if not s.get('profile'):
