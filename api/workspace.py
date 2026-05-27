@@ -956,6 +956,13 @@ def locate_folder_by_name(name: str, max_results: int = 10) -> list[dict]:
         if len(found) >= max_results:
             break
 
-    # Sort by path depth (shallower first), then alphabetically
-    found.sort(key=lambda p: (len(p.parts), str(p).lower()))
-    return [{"path": str(p), "label": p.name} for p in found[:max_results]]
+    # Deduplicate by resolved path, sort by depth (shallower first)
+    seen_paths: set[str] = set()
+    deduped: list[Path] = []
+    for p in found:
+        rp = str(p.resolve()) if p.exists() else str(p)
+        if rp not in seen_paths:
+            seen_paths.add(rp)
+            deduped.append(p)
+    deduped.sort(key=lambda p: (len(p.parts), str(p).lower()))
+    return [{"path": str(p), "label": p.name} for p in deduped[:max_results]]
