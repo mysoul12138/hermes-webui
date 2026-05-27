@@ -858,42 +858,39 @@ _LOCATE_SKIP_DIRS = frozenset({
     '.npm', '.cargo', '.rustup', '.nvm', '.local', '.config',
     'Library', '.Trash', '.gradle', '.m2', 'dist', 'build', '.next',
     '.turbo', '.parcel-cache', 'coverage', '.tox', '.eggs',
+    'AppData', 'snap', 'go', 'Android', '.android', '.vscode',
+    '.idea', 'Music', 'Pictures', 'Videos', 'Documents',
 })
 
+# Hard time limit for the entire search (seconds).
+_LOCATE_TIMEOUT_S = 8
 
-def _search_dir(root: Path, name: str, max_depth: int,
-                skip: frozenset, found: list, seen: set,
-                depth: int = 0) -> None:
-    """Recursively search *root* for directories whose name matches *name*.
 
-    Appends matching ``Path`` objects to *found*.  Stops early when
-    *found* reaches a reasonable limit (caller controls this).
-    """
-    if depth > max_depth or len(found) >= 20:
+def _search_dir_scandir(root: str, name: str, max_depth: int,
+                        skip: frozenset, found: list,
+                        deadline: float, depth: int = 0) -> None:
+    """Fast recursive search using os.scandir (avoids Path object overhead)."""
+    import time as _time
+    if depth > max_depth or len(found) >= 10 or _time.monotonic() > deadline:
         return
     try:
-        entries = list(root.iterdir())
+        entries = list(os.scandir(root))
     except (PermissionError, OSError):
         return
     for entry in entries:
-        if not entry.is_dir():
+        if _time.monotonic() > deadline:
+            return
+        if not entry.is_dir(follow_symlinks=False):
             continue
-        if entry.name.startswith('.') and entry.name not in ('.github',):
+        n = entry.name
+        if n.startswith('.') and n != '.github':
             continue
-        if entry.name in skip:
+        if n in skip:
             continue
-        resolved = None
-        try:
-            resolved = entry.resolve()
-        except (OSError, ValueError):
-            pass
-        if resolved and resolved in seen:
-            continue
-        if resolved:
-            seen.add(resolved)
-        if entry.name.lower() == name:
-            found.append(entry)
-        _search_dir(entry, name, max_depth, skip, found, seen, depth + 1)
+        full = entry.path
+        if n.lower() == name:
+            found.append(Path(full))
+        _search_dir_scandir(full, name, max_depth, skip, found, deadline, depth + 1)
 
 
 def locate_folder_by_name(name: str, max_results: int = 10) -> list[dict]:
@@ -903,46 +900,57 @@ def locate_folder_by_name(name: str, max_results: int = 10) -> list[dict]:
     sorted by path depth (shallowest first), capped at *max_results*.
 
     Search scope:
-    1. User's home directory (depth 4)
+    1. User's home directory (depth 3)
     2. Parent directories of existing workspaces (depth 2)
-    3. WSL ``/mnt/`` drive mounts (depth 3, Linux/WSL only)
+    3. WSL ``/mnt/`` drive mounts (depth 2, Linux/WSL only)
+
+    Hard-capped at ``_LOCATE_TIMEOUT_S`` seconds to avoid request timeouts.
     """
+    import time as _time
     name = name.strip()
     if not name:
         return []
     name_lower = name.lower()
+    deadline = _time.monotonic() + _LOCATE_TIMEOUT_S
 
     search_roots: list[tuple[Path, int]] = []
     seen: set[Path] = set()
 
     # 1. Home directory
-    search_roots.append((Path.home(), 4))
+    search_roots.append((str(Path.home()), 3))
 
     # 2. Existing workspace parent directories
     try:
         for ws in load_workspaces():
             p = Path(ws["path"])
             parent = p.parent if p.parent != p else None
-            if parent and parent not in seen:
-                seen.add(parent)
-                search_roots.append((parent, 2))
+            if parent:
+                sp = str(parent)
+                if sp not in seen:
+                    seen.add(sp)
+                    search_roots.append((sp, 2))
     except Exception:
         pass
 
     # 3. WSL /mnt/ mounts (drive letters)
-    mnt = Path("/mnt")
-    if mnt.is_dir():
+    mnt = "/mnt"
+    if os.path.isdir(mnt):
         try:
-            for drive in mnt.iterdir():
-                if drive.is_dir() and len(drive.name) == 1 and drive.name.isalpha():
-                    search_roots.append((drive, 3))
+            for name_entry in os.listdir(mnt):
+                full = os.path.join(mnt, name_entry)
+                if os.path.isdir(full) and len(name_entry) == 1 and name_entry.isalpha():
+                    search_roots.append((full, 2))
         except (PermissionError, OSError):
             pass
 
     found: list[Path] = []
-    for root, max_depth in search_roots:
+    import time as _time
+    for root_str, max_depth in search_roots:
+        if _time.monotonic() > deadline:
+            break
         try:
-            _search_dir(root, name_lower, max_depth, _LOCATE_SKIP_DIRS, found, seen)
+            _search_dir_scandir(root_str, name_lower, max_depth,
+                                _LOCATE_SKIP_DIRS, found, deadline)
         except (PermissionError, OSError):
             continue
         if len(found) >= max_results:
