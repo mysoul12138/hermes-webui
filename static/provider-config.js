@@ -53,9 +53,12 @@ function _ensureProviderRefreshButton(provider){
     refreshBtn.style.gap='6px';
     actions.insertBefore(refreshBtn, actions.firstChild);
   }
+  const providerId=(provider&&typeof provider==='object'&&typeof provider.id==='string'&&provider.id.trim())
+    ? provider.id.trim()
+    : 'custom';
   refreshBtn.hidden=false;
   refreshBtn.innerHTML=_providerModelRefreshIcon()+' '+esc(t('providers_refresh_models'));
-  refreshBtn.onclick=()=>_refreshProviderModels(provider||{id:''}, refreshBtn);
+  refreshBtn.onclick=()=>_refreshProviderModels(providerId, refreshBtn);
 }
 
 function _ensureProviderModalBindings(){
