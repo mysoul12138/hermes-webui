@@ -1607,10 +1607,7 @@ function renderModelDropdown(){
           }
         }
         const badgeHtml=m.badge?`<span class="model-opt-badge model-opt-badge--${esc(m.badge.role||'configured')}">${esc(badgeLabel)}</span>`:'';
-        const _norm=s=>String(s||'').toLowerCase().replace(/[@:/._-]+/g,' ').trim();
-        const _stripPrefix=id=>{const s=String(id||'');const at=s.indexOf(':');return at>0&&s[0]==='@'?s.slice(at+1):s;};
-        const idHtml=_norm(modelName)!==_norm(_stripPrefix(m.id))?`<span class="model-opt-id">${esc(m.id)}</span>`:'';
-        row.innerHTML=`<div class="model-opt-top"><span class="model-opt-name">${esc(modelName)}</span>${badgeHtml}</div>${idHtml}`;
+        row.innerHTML=`<div class="model-opt-top"><span class="model-opt-name">${esc(m.value)}</span>${badgeHtml}</div>`;
         row.onclick=()=>selectModelFromDropdown(m.value,(m.badge&&m.badge.provider)||m.providerId||null);
         dd.appendChild(row);
       }
@@ -1651,10 +1648,7 @@ function renderModelDropdown(){
       const badgeHtml=m.badge?`<span class="model-opt-badge model-opt-badge--${esc(m.badge.role||'configured')}">${esc(m.badge.label||'Configured')}</span>`:'';
       // Inline provider chip on every row that has a group (#1425)
       const providerChip=m.group?`<span class="model-opt-provider">${esc(m.group)}</span>`:'';
-      const _norm=s=>String(s||'').toLowerCase().replace(/[@:/._-]+/g,' ').trim();
-      const _stripPrefix=id=>{const s=String(id||'');const at=s.indexOf(':');return at>0&&s[0]==='@'?s.slice(at+1):s;};
-      const idHtml=_norm(m.name)!==_norm(_stripPrefix(m.id))?`<span class="model-opt-id">${esc(m.id)}</span>`:'';
-      row.innerHTML=`<div class="model-opt-top"><span class="model-opt-name">${esc(m.name)}</span>${badgeHtml}${providerChip}</div>${idHtml}`;
+      row.innerHTML=`<div class="model-opt-top"><span class="model-opt-name">${esc(m.value)}</span>${badgeHtml}${providerChip}</div>`;
       row.onclick=()=>selectModelFromDropdown(m.value,m.providerId||(m.badge&&m.badge.provider)||null);
       dd.appendChild(row);
     }
