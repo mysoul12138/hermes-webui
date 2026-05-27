@@ -171,7 +171,7 @@ def _extract_model_ids_from_models_payload(payload, *, free_only: bool = False) 
 
 
 def _fetch_openai_compatible_model_ids(base_url: str, api_key: str = "", *, free_only: bool = False) -> list[str]:
-    headers = {"Accept": "application/json"}
+    headers = {"Accept": "application/json", "User-Agent": "hermes-webui"}
     key = str(api_key or "").strip()
     if key:
         headers["Authorization"] = f"Bearer {key}"
