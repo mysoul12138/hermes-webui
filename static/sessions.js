@@ -2412,13 +2412,11 @@ function _sessionSearchContentPreview(session, query){
 
 function _sessionSourceLabel(filter, count) {
   const n = Number(count) || 0;
-  if (filter === 'cli') return `CLI sessions (${n})`;
-  if (filter === 'all') return `All (${n})`;
-  return `WebUI sessions (${n})`;
+  return filter === 'cli' ? `CLI sessions (${n})` : `WebUI sessions (${n})`;
 }
 
 function _setSessionSourceFilter(filter) {
-  const next = filter === 'cli' ? 'cli' : filter === 'all' ? 'all' : 'webui';
+  const next = filter === 'cli' ? 'cli' : 'webui';
   if (_sessionSourceFilter === next) return;
   _sessionSourceFilter = next;
   _activeProject = null;
@@ -2903,13 +2901,11 @@ function renderSessionListFromCache(){
   const webuiSessionCount = withMessages.filter(s=>!_isCliSession(s)).length;
   const cliSessionCount = withMessages.filter(s=>_isCliSession(s)).length;
   if(_sessionSourceFilter==='cli' && !window._showCliSessions && cliSessionCount===0){
-    _sessionSourceFilter='all';
+    _sessionSourceFilter='webui';
   }
-  const sourceFiltered = _sessionSourceFilter==='all'
-    ? withMessages
-    : _sessionSourceFilter==='cli'
-      ? withMessages.filter(s=>_isCliSession(s))
-      : withMessages.filter(s=>!_isCliSession(s));
+  const sourceFiltered = _sessionSourceFilter==='cli'
+    ? withMessages.filter(s=>_isCliSession(s))
+    : withMessages.filter(s=>!_isCliSession(s));
   // The server is authoritative for profile scoping (#1611): it filters by
   // active profile when no query param is set, and returns the aggregate when
   // we send ?all_profiles=1. The renamed-root cross-alias (a row tagged
@@ -2917,7 +2913,7 @@ function renderSessionListFromCache(){
   // in _profiles_match, and a strict-equality client filter would reject those
   // rows incorrectly. So we trust the wire data and skip the redundant client
   // filter entirely.
-  const profileFiltered=sourceFiltered;
+  const profileFiltered=_activeProject?withMessages:sourceFiltered;
   const defaultVisible=profileFiltered.filter(s=>_activeProject||!_isDefaultHiddenSession(s));
   // Filter by active project. NO_PROJECT_FILTER sentinel asks for sessions
   // with no project_id; otherwise filter to the matching project_id, or
@@ -2961,8 +2957,8 @@ function renderSessionListFromCache(){
   if(window._showCliSessions || cliSessionCount>0){
     const sourceTabs=document.createElement('div');
     sourceTabs.className='session-source-tabs';
-    for(const filter of ['all','webui','cli']){
-      const count=filter==='all'?(webuiSessionCount+cliSessionCount):filter==='cli'?cliSessionCount:webuiSessionCount;
+    for(const filter of ['webui','cli']){
+      const count=filter==='cli'?cliSessionCount:webuiSessionCount;
       const btn=document.createElement('button');
       btn.type='button';
       btn.className='session-source-tab'+(_sessionSourceFilter===filter?' active':'');
@@ -3055,15 +3051,15 @@ function renderSessionListFromCache(){
     list.appendChild(toggle);
   }
   // Empty state for active project filter
-  if(_activeProject&&sessions.length===0){
-    const empty=document.createElement('div');
-    empty.className='session-empty-note';
-    empty.textContent=_activeProject===NO_PROJECT_FILTER?'No unassigned sessions.':'No sessions in this project yet.';
-    list.appendChild(empty);
-  } else if(_sessionSourceFilter==='cli'&&sessions.length===0){
+  if(_sessionSourceFilter==='cli'&&sessions.length===0){
     const empty=document.createElement('div');
     empty.className='session-empty-note';
     empty.textContent=window._showCliSessions?'No CLI sessions found.':'Enable Show agent sessions in Settings to list CLI sessions here.';
+    list.appendChild(empty);
+  } else if(_activeProject&&sessions.length===0){
+    const empty=document.createElement('div');
+    empty.className='session-empty-note';
+    empty.textContent=_activeProject===NO_PROJECT_FILTER?'No unassigned sessions.':'No sessions in this project yet.';
     list.appendChild(empty);
   }
   const orderedSessions=[...sessions].sort((a,b)=>_sessionTimestampMs(b)-_sessionTimestampMs(a));
