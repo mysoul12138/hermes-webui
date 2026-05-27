@@ -1952,7 +1952,7 @@ def resolve_custom_provider_connection(provider_id: str) -> tuple[str | None, st
         if entry_slug != slug:
             continue
 
-        base_url = str(entry.get("base_url") or "").strip() or None
+        base_url = str(entry.get("base_url") or entry.get("api") or entry.get("api_base") or "").strip() or None
         api_key = _resolve_key(entry.get("api_key"), entry.get("key_env"), pid)
         return api_key, base_url
 
@@ -1978,7 +1978,8 @@ def resolve_custom_provider_connection(provider_id: str) -> tuple[str | None, st
     fallback_base = None
     for candidate in (provider_specific, provider_custom, model_cfg):
         if isinstance(candidate, dict):
-            _base = str(candidate.get("base_url") or "").strip()
+            # Accept base_url, api, or api_base as the base URL field name
+            _base = str(candidate.get("base_url") or candidate.get("api") or candidate.get("api_base") or "").strip()
             if _base:
                 fallback_base = _base
                 break
