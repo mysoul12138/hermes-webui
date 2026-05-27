@@ -10,7 +10,7 @@ STYLE_CSS = ROOT / "static" / "style.css"
 def test_sidebar_has_separate_webui_and_cli_session_source_tabs():
     src = SESSIONS_JS.read_text(encoding="utf-8")
     state_src = SESSION_LIST_STATE_JS.read_text(encoding="utf-8")
-    assert "let _sessionSourceFilter = 'webui'" in state_src
+    assert "let _sessionSourceFilter = 'all'" in state_src
     assert "hermes-session-source-filter" in state_src
     assert "session-source-tabs" in src
     assert "WebUI sessions" in src

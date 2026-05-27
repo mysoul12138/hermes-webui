@@ -101,7 +101,7 @@ const NO_PROJECT_FILTER = '__none__';
 let _activeProject = null;  // project_id filter (null = show all, NO_PROJECT_FILTER = unassigned only)
 let _showAllProfiles = false;  // false = filter to active profile only
 let _otherProfileCount = 0;
-let _sessionSourceFilter = 'webui';  // 'webui' keeps WebUI chats separate from read-only CLI sessions
+let _sessionSourceFilter = 'all';  // 'all' shows everything; 'webui' / 'cli' filter by source
 _restoreSessionSourceFilter();
 let _sessionActionMenu = null;
 let _sessionActionAnchor = null;
@@ -122,7 +122,7 @@ let _sessionVirtualScrollRaf = 0;
 function _restoreSessionSourceFilter() {
   try {
     const raw = localStorage.getItem('hermes-session-source-filter');
-    if (raw === 'cli' || raw === 'webui') _sessionSourceFilter = raw;
+    if (raw === 'cli' || raw === 'webui' || raw === 'all') _sessionSourceFilter = raw;
   } catch (_e) {}
 }
 
