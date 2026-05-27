@@ -4,7 +4,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SESSIONS_JS = (ROOT / "static" / "sessions.js").read_text(encoding="utf-8")
-SESSION_LIST_STATE_JS = (ROOT / "static" / "session-list-state.js").read_text(encoding="utf-8")
 
 
 def test_sse_import_cli_guard_skips_shorter_transcript_overwrite():
@@ -22,9 +21,9 @@ def test_sse_import_cli_guard_skips_shorter_transcript_overwrite():
 
 def test_sse_import_cli_refresh_prefix_helper_ignores_timestamps():
     """Refresh-prefix helper used by SSE should compare messages without timestamp keys."""
-    assert "function _normalizeMessageForCliImportComparison(message)" in SESSION_LIST_STATE_JS
-    assert "delete clone.timestamp;" in SESSION_LIST_STATE_JS
-    assert "delete clone._ts;" in SESSION_LIST_STATE_JS
-    assert "function _isCliImportRefreshPrefixMatch(localMessages, freshMessages)" in SESSION_LIST_STATE_JS
-    assert "_normalizeMessageForCliImportComparison" in SESSION_LIST_STATE_JS
-    assert "localMessages.length > freshMessages.length" in SESSION_LIST_STATE_JS
+    assert "function _normalizeMessageForCliImportComparison(message)" in SESSIONS_JS
+    assert "delete clone.timestamp;" in SESSIONS_JS
+    assert "delete clone._ts;" in SESSIONS_JS
+    assert "function _isCliImportRefreshPrefixMatch(localMessages, freshMessages)" in SESSIONS_JS
+    assert "_normalizeMessageForCliImportComparison" in SESSIONS_JS
+    assert "localMessages.length > freshMessages.length" in SESSIONS_JS

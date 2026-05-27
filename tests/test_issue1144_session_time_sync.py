@@ -22,7 +22,6 @@ import pytest
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent.resolve()
 SESSIONS_JS = (REPO_ROOT / "static" / "sessions.js").read_text(encoding="utf-8")
-SESSION_LIST_STATE_JS = (REPO_ROOT / "static" / "session-list-state.js").read_text(encoding="utf-8")
 UI_JS = (REPO_ROOT / "static" / "ui.js").read_text(encoding="utf-8")
 
 
@@ -84,7 +83,7 @@ def _extract_function(source: str, name: str) -> str:
 def _run_time_case(script_body: str, tz: str = "UTC") -> dict:
     """Extract time-related functions and run a script body via Node.js."""
     functions = "\n\n".join(
-        _extract_function(SESSION_LIST_STATE_JS, name)
+        _extract_function(SESSIONS_JS, name)
         for name in (
             "_sessionTimestampMs",
             "_localDayOrdinal",
@@ -473,10 +472,10 @@ def test_message_footer_timestamp_falls_back_without_server_tz():
 # ---------------------------------------------------------------------------
 
 def test_sessions_js_has_server_time_compensation_vars():
-    assert "_serverTimeDelta" in SESSION_LIST_STATE_JS
-    assert "_serverTz" in SESSION_LIST_STATE_JS
-    assert "function _serverNowMs()" in SESSION_LIST_STATE_JS
-    assert "function _serverTzOptions()" in SESSION_LIST_STATE_JS
+    assert "_serverTimeDelta" in SESSIONS_JS
+    assert "_serverTz" in SESSIONS_JS
+    assert "function _serverNowMs()" in SESSIONS_JS
+    assert "function _serverTzOptions()" in SESSIONS_JS
 
 
 def test_sessions_js_captures_server_time_on_fetch():
@@ -491,7 +490,7 @@ def test_sessions_js_uses_server_now_in_time_functions():
     # Ensure the old pattern `Date.now()` is NOT the default in these functions
     assert "nowMs = Date.now()" not in SESSIONS_JS
     # _serverNowMs() should be used as fallback in time formatting functions
-    assert "nowMs || _serverNowMs()" in SESSION_LIST_STATE_JS
+    assert "nowMs || _serverNowMs()" in SESSIONS_JS
 
 
 def test_ui_js_message_timestamp_uses_server_tz():
@@ -510,14 +509,14 @@ def test_ui_js_message_timestamp_uses_server_tz():
 def test_sessions_js_has_format_in_server_tz_helper():
     """_formatInServerTz must exist and use offset arithmetic so fractional
     offsets (India +0530, Iran +0330, etc.) format correctly."""
-    assert "function _formatInServerTz" in SESSION_LIST_STATE_JS, (
+    assert "function _formatInServerTz" in SESSIONS_JS, (
         "_formatInServerTz must be defined to handle fractional-hour "
         "offsets that Etc/GMT cannot express"
     )
     # Find the function body
-    start = SESSION_LIST_STATE_JS.find("function _formatInServerTz")
-    end = SESSION_LIST_STATE_JS.find("\n}", start) + 2
-    body = SESSION_LIST_STATE_JS[start:end]
+    start = SESSIONS_JS.find("function _formatInServerTz")
+    end = SESSIONS_JS.find("\n}", start) + 2
+    body = SESSIONS_JS[start:end]
     # Offset arithmetic + timeZone:'UTC' is the correct strategy
     assert "timeZone: 'UTC'" in body or 'timeZone: "UTC"' in body, (
         "_formatInServerTz must format in UTC after applying the offset "

@@ -10,7 +10,6 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 BOOT_JS = (ROOT / "static" / "boot.js").read_text(encoding="utf-8")
 SESSIONS_JS = (ROOT / "static" / "sessions.js").read_text(encoding="utf-8")
-SESSION_LIST_STATE_JS = (ROOT / "static" / "session-list-state.js").read_text(encoding="utf-8")
 
 
 def _function_body(src: str, name: str, window: int = 1800) -> str:
@@ -63,7 +62,7 @@ class TestSidebarCancelAction:
 
     def test_cli_session_helper_identifies_cli_origin(self):
         """CLI sessions should be treated as external-only for destructive action gating."""
-        body = _function_body(SESSION_LIST_STATE_JS, "_isCliSession", 900)
+        body = _function_body(SESSIONS_JS, "_isCliSession", 900)
         assert "function _isCliSession(session) {" in body
         assert "session.session_source === 'cli'" in body
         assert "session.raw_source" in body

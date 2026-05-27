@@ -8,7 +8,6 @@ import pytest
 
 REPO_ROOT = Path(__file__).parent.parent.resolve()
 SESSIONS_JS_PATH = REPO_ROOT / "static" / "sessions.js"
-SESSION_LIST_STATE_JS_PATH = REPO_ROOT / "static" / "session-list-state.js"
 NODE = shutil.which("node")
 
 pytestmark = pytest.mark.skipif(NODE is None, reason="node not on PATH")
@@ -32,7 +31,7 @@ def _run_node(source: str) -> str:
 
 
 def test_sidebar_lineage_collapse_keeps_latest_tip_and_counts_segments():
-    js = SESSION_LIST_STATE_JS_PATH.read_text(encoding="utf-8") + "\n" + SESSIONS_JS_PATH.read_text(encoding="utf-8")
+    js = SESSIONS_JS_PATH.read_text(encoding="utf-8")
     source = f"""
 const src = {js!r};
 function extractFunc(name) {{
@@ -68,7 +67,7 @@ console.log(JSON.stringify(collapsed));
 
 
 def test_sidebar_active_state_can_fall_back_to_url_session_during_boot():
-    js = SESSION_LIST_STATE_JS_PATH.read_text(encoding="utf-8") + "\n" + SESSIONS_JS_PATH.read_text(encoding="utf-8")
+    js = SESSIONS_JS_PATH.read_text(encoding="utf-8")
     source = f"""
 const src = {js!r};
 function extractFunc(name) {{
@@ -94,7 +93,7 @@ console.log(_activeSessionIdForSidebar());
 
 
 def test_collapsed_lineage_contains_active_hidden_segment():
-    js = SESSION_LIST_STATE_JS_PATH.read_text(encoding="utf-8") + "\n" + SESSIONS_JS_PATH.read_text(encoding="utf-8")
+    js = SESSIONS_JS_PATH.read_text(encoding="utf-8")
     source = f"""
 const src = {js!r};
 function extractFunc(name) {{
@@ -134,7 +133,7 @@ def test_parent_present_webui_compression_child_without_lineage_metadata_collaps
     in the sidebar payload, the continuation should still collapse with its
     parent instead of appearing as a separate branch-like conversation (#2489).
     """
-    js = SESSION_LIST_STATE_JS_PATH.read_text(encoding="utf-8") + "\n" + SESSIONS_JS_PATH.read_text(encoding="utf-8")
+    js = SESSIONS_JS_PATH.read_text(encoding="utf-8")
     source = f"""
 const src = {js!r};
 function extractFunc(name) {{
@@ -176,7 +175,7 @@ def test_stale_optimistic_compression_tips_collapse_even_when_parents_are_visibl
     Those rows carry explicit lineage metadata and must collapse as one sidebar
     conversation instead of rendering 7/8/9/10 segment duplicates.
     """
-    js = SESSION_LIST_STATE_JS_PATH.read_text(encoding="utf-8") + "\n" + SESSIONS_JS_PATH.read_text(encoding="utf-8")
+    js = SESSIONS_JS_PATH.read_text(encoding="utf-8")
     source = f"""
 const src = {js!r};
 function extractFunc(name) {{
@@ -220,7 +219,7 @@ def test_sidebar_lineage_collapse_prefers_highest_compression_segment_over_touch
     segment, otherwise the visible chat jumps back to a parent that lacks the
     completed assistant answer.
     """
-    js = SESSION_LIST_STATE_JS_PATH.read_text(encoding="utf-8") + "\n" + SESSIONS_JS_PATH.read_text(encoding="utf-8")
+    js = SESSIONS_JS_PATH.read_text(encoding="utf-8")
     source = f"""
 const src = {js!r};
 function extractFunc(name) {{
@@ -262,7 +261,7 @@ def test_sidebar_lineage_collapse_prefers_current_tip_over_same_segment_snapshot
     compression jumps back to the older parent transcript and looks like the
     active conversation disappeared.
     """
-    js = SESSION_LIST_STATE_JS_PATH.read_text(encoding="utf-8") + "\n" + SESSIONS_JS_PATH.read_text(encoding="utf-8")
+    js = SESSIONS_JS_PATH.read_text(encoding="utf-8")
     source = f"""
 const src = {js!r};
 function extractFunc(name) {{
@@ -304,7 +303,7 @@ def test_direct_parent_restore_resolves_to_visible_compression_tip():
     parent. Boot restore should use that visible tip instead of loading the old
     parent transcript and making the continuation look lost.
     """
-    js = SESSION_LIST_STATE_JS_PATH.read_text(encoding="utf-8") + "\n" + SESSIONS_JS_PATH.read_text(encoding="utf-8")
+    js = SESSIONS_JS_PATH.read_text(encoding="utf-8")
     source = f"""
 const src = {js!r};
 function extractFunc(name) {{
@@ -338,7 +337,7 @@ console.log(JSON.stringify({{parent:_resolveSessionIdFromSidebarLineage('parent'
 
 
 def test_sidebar_attaches_child_sessions_to_collapsed_hidden_parent_lineage():
-    js = SESSION_LIST_STATE_JS_PATH.read_text(encoding="utf-8") + "\n" + SESSIONS_JS_PATH.read_text(encoding="utf-8")
+    js = SESSIONS_JS_PATH.read_text(encoding="utf-8")
     source = f"""
 const src = {js!r};
 function extractFunc(name) {{
@@ -376,7 +375,7 @@ console.log(JSON.stringify(attached));
 
 
 def test_cross_surface_webui_child_session_remains_top_level_when_parent_is_messaging():
-    js = SESSION_LIST_STATE_JS_PATH.read_text(encoding="utf-8") + "\n" + SESSIONS_JS_PATH.read_text(encoding="utf-8")
+    js = SESSIONS_JS_PATH.read_text(encoding="utf-8")
     source = f"""
 const src = {js!r};
 function extractFunc(name) {{
@@ -420,7 +419,7 @@ console.log(JSON.stringify(rows));
 
 
 def test_session_segment_count_prefers_visible_collapsed_backend_and_materialized_counts():
-    js = SESSION_LIST_STATE_JS_PATH.read_text(encoding="utf-8") + "\n" + SESSIONS_JS_PATH.read_text(encoding="utf-8")
+    js = SESSIONS_JS_PATH.read_text(encoding="utf-8")
     source = f"""
 const src = {js!r};
 function extractFunc(name) {{
@@ -450,7 +449,7 @@ console.log(JSON.stringify(cases));
 
 
 def test_sidebar_lineage_segment_badge_is_detailed_density_only_and_localized():
-    js = SESSION_LIST_STATE_JS_PATH.read_text(encoding="utf-8") + "\n" + SESSIONS_JS_PATH.read_text(encoding="utf-8")
+    js = SESSIONS_JS_PATH.read_text(encoding="utf-8")
     css = (REPO_ROOT / "static" / "style.css").read_text(encoding="utf-8")
     assert "session-lineage-count" in js
     assert "const density=(window._sidebarDensity==='detailed'?'detailed':'compact');" in js
@@ -465,7 +464,7 @@ def test_sidebar_lineage_segment_badge_is_detailed_density_only_and_localized():
 
 
 def test_lineage_segment_expansion_static_contract():
-    js = SESSION_LIST_STATE_JS_PATH.read_text(encoding="utf-8") + "\n" + SESSIONS_JS_PATH.read_text(encoding="utf-8")
+    js = SESSIONS_JS_PATH.read_text(encoding="utf-8")
     css = (REPO_ROOT / "static" / "style.css").read_text(encoding="utf-8")
     assert "const _expandedLineageKeys = new Set();" in js
     assert "const _lineageReportCache = new Map();" in js
@@ -490,7 +489,7 @@ def test_lineage_segment_expansion_static_contract():
 
 
 def test_lineage_report_fetch_is_needed_only_when_backend_count_exceeds_materialized_segments():
-    js = SESSION_LIST_STATE_JS_PATH.read_text(encoding="utf-8") + "\n" + SESSIONS_JS_PATH.read_text(encoding="utf-8")
+    js = SESSIONS_JS_PATH.read_text(encoding="utf-8")
     source = f"""
 const src = {js!r};
 function extractFunc(name) {{
@@ -528,7 +527,7 @@ console.log(JSON.stringify({{before, afterCache, fullLocal}}));
 
 
 def test_cached_lineage_report_segments_merge_with_materialized_segments_without_duplicates_or_children():
-    js = SESSION_LIST_STATE_JS_PATH.read_text(encoding="utf-8") + "\n" + SESSIONS_JS_PATH.read_text(encoding="utf-8")
+    js = SESSIONS_JS_PATH.read_text(encoding="utf-8")
     source = f"""
 const src = {js!r};
 function extractFunc(name) {{
@@ -568,7 +567,7 @@ console.log(JSON.stringify(segments));
 
 
 def test_lineage_report_fetch_uses_endpoint_once_and_caches_result():
-    js = SESSION_LIST_STATE_JS_PATH.read_text(encoding="utf-8") + "\n" + SESSIONS_JS_PATH.read_text(encoding="utf-8")
+    js = SESSIONS_JS_PATH.read_text(encoding="utf-8")
     source = f"""
 const src = {js!r};
 function extractFunc(name) {{
@@ -617,7 +616,7 @@ eval(extractFunc('_fetchLineageReportForRow'));
 
 
 def test_active_hidden_lineage_segment_auto_expands_parent():
-    js = SESSION_LIST_STATE_JS_PATH.read_text(encoding="utf-8") + "\n" + SESSIONS_JS_PATH.read_text(encoding="utf-8")
+    js = SESSIONS_JS_PATH.read_text(encoding="utf-8")
     source = f"""
 const src = {js!r};
 function extractFunc(name) {{
@@ -693,7 +692,7 @@ def test_session_meta_segments_softened_label_no_literal_segment_in_english():
 
 def test_sidebar_search_and_rows_use_read_only_display_title():
     """Stale persisted titles should not drive sidebar search/render when display_title exists."""
-    js = SESSION_LIST_STATE_JS_PATH.read_text(encoding="utf-8") + "\n" + SESSIONS_JS_PATH.read_text(encoding="utf-8")
+    js = SESSIONS_JS_PATH.read_text(encoding="utf-8")
     assert "function _sessionDisplayTitle" in js
     assert "function _sessionTitleTags" in js
     assert "_allSessions.filter(s=>_sessionDisplayTitle(s).toLowerCase().includes(q))" in js
@@ -706,7 +705,7 @@ def test_sidebar_search_and_rows_use_read_only_display_title():
 
 def test_child_session_parent_segment_note_uses_display_title():
     """A child attached through a hidden parent segment should show the reconciled segment title."""
-    js = SESSION_LIST_STATE_JS_PATH.read_text(encoding="utf-8") + "\n" + SESSIONS_JS_PATH.read_text(encoding="utf-8")
+    js = SESSIONS_JS_PATH.read_text(encoding="utf-8")
     source = f"""
 const src = {js!r};
 function extractFunc(name) {{
@@ -751,7 +750,7 @@ console.log(JSON.stringify(rows[0]._child_sessions[0]));
 
 def test_default_webui_numbered_titles_are_not_treated_as_hash_tags():
     """The reconciled title 'Hermes WebUI #177' must render with its number intact."""
-    js = SESSION_LIST_STATE_JS_PATH.read_text(encoding="utf-8") + "\n" + SESSIONS_JS_PATH.read_text(encoding="utf-8")
+    js = SESSIONS_JS_PATH.read_text(encoding="utf-8")
     source = f"""
 const src = {js!r};
 function extractFunc(name) {{

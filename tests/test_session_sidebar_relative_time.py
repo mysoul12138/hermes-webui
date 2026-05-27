@@ -5,7 +5,6 @@ import textwrap
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent.resolve()
 SESSIONS_JS = (REPO_ROOT / "static" / "sessions.js").read_text(encoding="utf-8")
-SESSION_LIST_STATE_JS = (REPO_ROOT / "static" / "session-list-state.js").read_text(encoding="utf-8")
 STYLE_CSS = (REPO_ROOT / "static" / "style.css").read_text(encoding="utf-8")
 I18N_JS = (REPO_ROOT / "static" / "i18n.js").read_text(encoding="utf-8")
 
@@ -28,7 +27,7 @@ def _extract_function(source: str, name: str) -> str:
 
 def _run_session_time_case(script_body: str) -> dict:
     functions = "\n\n".join(
-        _extract_function(SESSION_LIST_STATE_JS, name)
+        _extract_function(SESSIONS_JS, name)
         for name in (
             "_sessionTimestampMs",
             "_localDayOrdinal",
@@ -66,13 +65,13 @@ def _run_session_time_case(script_body: str) -> dict:
 
 
 def test_session_sidebar_js_has_dynamic_relative_time_helpers():
-    assert "function _sessionTimestampMs" in SESSION_LIST_STATE_JS
-    assert "function _sessionCalendarBoundaries" in SESSION_LIST_STATE_JS
-    assert "function _formatRelativeSessionTime" in SESSION_LIST_STATE_JS
-    assert "function _sessionTimeBucketLabel" in SESSION_LIST_STATE_JS
-    assert "session_time_bucket_last_week" in SESSION_LIST_STATE_JS
-    assert "session_time_bucket_this_week" in SESSION_LIST_STATE_JS
-    assert "session_time_bucket_older" in SESSION_LIST_STATE_JS
+    assert "function _sessionTimestampMs" in SESSIONS_JS
+    assert "function _sessionCalendarBoundaries" in SESSIONS_JS
+    assert "function _formatRelativeSessionTime" in SESSIONS_JS
+    assert "function _sessionTimeBucketLabel" in SESSIONS_JS
+    assert "session_time_bucket_last_week" in SESSIONS_JS
+    assert "session_time_bucket_this_week" in SESSIONS_JS
+    assert "session_time_bucket_older" in SESSIONS_JS
 
 
 def test_session_sidebar_renders_relative_time_and_meta_rows():

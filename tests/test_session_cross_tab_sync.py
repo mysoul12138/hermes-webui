@@ -6,7 +6,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent.resolve()
 SESSIONS_JS = (REPO_ROOT / "static" / "sessions.js").read_text(encoding="utf-8")
-SESSION_LIST_STATE_JS = (REPO_ROOT / "static" / "session-list-state.js").read_text(encoding="utf-8")
 BOOT_JS = (REPO_ROOT / "static" / "boot.js").read_text(encoding="utf-8")
 COMMANDS_JS = (REPO_ROOT / "static" / "commands.js").read_text(encoding="utf-8")
 MESSAGES_JS = (REPO_ROOT / "static" / "messages.js").read_text(encoding="utf-8")
@@ -32,9 +31,9 @@ def test_storage_event_does_not_globally_switch_tabs():
 
 
 def test_session_switch_updates_url_path_for_tab_local_anchor():
-    assert "function _sessionIdFromLocation()" in SESSION_LIST_STATE_JS
-    assert "function _setActiveSessionUrl(sid)" in SESSION_LIST_STATE_JS
-    assert "'/session/'" in SESSION_LIST_STATE_JS
+    assert "function _sessionIdFromLocation()" in SESSIONS_JS
+    assert "function _setActiveSessionUrl(sid)" in SESSIONS_JS
+    assert "'/session/'" in SESSIONS_JS
     assert "_setActiveSessionUrl(S.session.session_id)" in SESSIONS_JS
     assert "_setActiveSessionUrl(S.session.session_id)" in COMMANDS_JS
     assert "addEventListener('popstate'" in SESSIONS_JS or 'addEventListener("popstate"' in SESSIONS_JS

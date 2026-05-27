@@ -653,7 +653,7 @@ def test_browser_session_url_accepts_api_session_id_param(cleanup_test_sessions)
     legitimately produce `/?session_id=<sid>`; ignoring it falls back to stale
     localStorage and renders the wrong or empty conversation.
     """
-    src = (REPO_ROOT / "static/session-list-state.js").read_text()
+    src = (REPO_ROOT / "static/sessions.js").read_text()
     start = src.find("function _sessionIdFromLocation")
     assert start >= 0, "session URL parser not found"
     end = src.find("function _sessionUrlForSid", start)

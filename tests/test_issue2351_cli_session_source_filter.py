@@ -3,15 +3,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SESSIONS_JS = ROOT / "static" / "sessions.js"
-SESSION_LIST_STATE_JS = ROOT / "static" / "session-list-state.js"
 STYLE_CSS = ROOT / "static" / "style.css"
 
 
 def test_sidebar_has_separate_webui_and_cli_session_source_tabs():
     src = SESSIONS_JS.read_text(encoding="utf-8")
-    state_src = SESSION_LIST_STATE_JS.read_text(encoding="utf-8")
-    assert "let _sessionSourceFilter = 'webui'" in state_src
-    assert "hermes-session-source-filter" in state_src
+    assert "let _sessionSourceFilter = 'webui'" in src
+    assert "hermes-session-source-filter" in src
     assert "session-source-tabs" in src
     assert "WebUI sessions" in src
     assert "CLI sessions" in src

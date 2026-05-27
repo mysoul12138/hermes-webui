@@ -84,7 +84,7 @@ def test_branch_marks_explicit_forks_as_fork_sessions():
 
 def test_branch_fork_sessions_do_not_collapse_into_parent_lineage():
     """Forks remain selectable rows even if their parent is not in the current list."""
-    with open('static/session-list-state.js') as f:
+    with open('static/sessions.js') as f:
         src = f.read()
     fn = re.search(r'function _sessionLineageKey\(.*?\n\}', src, re.DOTALL)
     assert fn, "Could not find _sessionLineageKey"
