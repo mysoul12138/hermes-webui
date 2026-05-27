@@ -186,9 +186,9 @@
           // Multiple matches — show picker
           _renderLocateResults(matches, inputEl, onSelect);
         } else {
-          // No match — show hint, put folder name in input for reference
+          // No match — show hint, put folder name in input for user to complete
           _renderLocateResults([], inputEl, onSelect);
-          if (inputEl && !inputEl.value) {
+          if (inputEl) {
             inputEl.value = result.name;
             inputEl.focus();
           }

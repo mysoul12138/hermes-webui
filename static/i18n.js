@@ -1291,6 +1291,7 @@ const LOCALES = {
     workspace_browse_title: 'Pick a folder from your file system',
     workspace_locate_no_match: 'No matching folders found. Type the path manually.',
     workspace_locate_select: 'Select a folder:',
+    workspace_browse_error: 'Could not browse folders: ',
 
     workspace_drag_hint: 'Drag to reorder',
     workspace_reorder_failed: 'Reorder failed',
@@ -8681,6 +8682,7 @@ const LOCALES = {
     workspace_browse_title: '从文件系统中选择文件夹',
     workspace_locate_no_match: '未找到匹配的文件夹，请手动输入路径。',
     workspace_locate_select: '选择一个文件夹：',
+    workspace_browse_error: '无法浏览文件夹：',
 
     workspace_drag_hint: '拖动以重新排序',
     workspace_reorder_failed: '重新排序失败',
