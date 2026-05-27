@@ -1457,10 +1457,7 @@ function renderModelDropdown(){
       }
       for(const opt of Array.from(child.children)){
         const rawValue=String(opt.value||'');
-        const displayName=rawValue.startsWith('@custom:')
-          ? getModelLabel(rawValue)
-          : (opt.textContent||getModelLabel(rawValue));
-        _modelData.push({value:opt.value,name:esc(displayName),id:esc(opt.value),group:child.label||'',providerId,modelsEndpointError,badge:_getConfiguredModelBadge(opt.value,_badgeMap,providerId)});
+        _modelData.push({value:opt.value,name:esc(rawValue),id:esc(opt.value),group:child.label||'',providerId,modelsEndpointError,badge:_getConfiguredModelBadge(opt.value,_badgeMap,providerId)});
       }
       if(modelsEndpointError && !child.children.length){
         _modelData.push({value:`__models_endpoint_error__:${providerId||child.label||''}`,name:'',id:'',group:child.label||'',providerId,modelsEndpointError,endpointErrorOnly:true});
@@ -1468,10 +1465,7 @@ function renderModelDropdown(){
     }
     if(child.tagName==='OPTION'){
       const rawValue=String(child.value||'');
-      const displayName=rawValue.startsWith('@custom:')
-        ? getModelLabel(rawValue)
-        : (child.textContent||getModelLabel(rawValue));
-      _modelData.push({value:child.value,name:esc(displayName),id:esc(child.value),group:'',badge:_getConfiguredModelBadge(child.value,_badgeMap)});
+      _modelData.push({value:child.value,name:esc(rawValue),id:esc(child.value),group:'',badge:_getConfiguredModelBadge(child.value,_badgeMap)});
     }
   }
   const _existingConfiguredKeys=new Set(_modelData.map(existing=>_normalizeConfiguredModelKey(existing.value)));
@@ -1479,7 +1473,7 @@ function renderModelDropdown(){
     if(_existingConfiguredKeys.has(_normalizeConfiguredModelKey(modelId))) continue;
     _modelData.push({
       value:modelId,
-      name:esc(getModelLabel(modelId)),
+      name:esc(modelId),
       id:esc(modelId),
       group:'',
       badge,
