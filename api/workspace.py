@@ -847,3 +847,107 @@ def git_info_for_workspace(workspace: Path) -> dict:
         'behind': behind,
         'is_git': True,
     }
+
+
+# ── Folder locate (Browse button support) ─────────────────────────────────
+
+# Directories to skip during recursive search — too deep, too noisy, or
+# not useful as workspace roots.
+_LOCATE_SKIP_DIRS = frozenset({
+    '.git', 'node_modules', '.venv', 'venv', '__pycache__', '.cache',
+    '.npm', '.cargo', '.rustup', '.nvm', '.local', '.config',
+    'Library', '.Trash', '.gradle', '.m2', 'dist', 'build', '.next',
+    '.turbo', '.parcel-cache', 'coverage', '.tox', '.eggs',
+})
+
+
+def _search_dir(root: Path, name: str, max_depth: int,
+                skip: frozenset, found: list, seen: set,
+                depth: int = 0) -> None:
+    """Recursively search *root* for directories whose name matches *name*.
+
+    Appends matching ``Path`` objects to *found*.  Stops early when
+    *found* reaches a reasonable limit (caller controls this).
+    """
+    if depth > max_depth or len(found) >= 20:
+        return
+    try:
+        entries = list(root.iterdir())
+    except (PermissionError, OSError):
+        return
+    for entry in entries:
+        if not entry.is_dir():
+            continue
+        if entry.name.startswith('.') and entry.name not in ('.github',):
+            continue
+        if entry.name in skip:
+            continue
+        resolved = None
+        try:
+            resolved = entry.resolve()
+        except (OSError, ValueError):
+            pass
+        if resolved and resolved in seen:
+            continue
+        if resolved:
+            seen.add(resolved)
+        if entry.name.lower() == name:
+            found.append(entry)
+        _search_dir(entry, name, max_depth, skip, found, seen, depth + 1)
+
+
+def locate_folder_by_name(name: str, max_results: int = 10) -> list[dict]:
+    """Search the server filesystem for directories matching *name*.
+
+    Returns ``[{"path": "/abs/path", "label": "display name"}, ...]``
+    sorted by path depth (shallowest first), capped at *max_results*.
+
+    Search scope:
+    1. User's home directory (depth 4)
+    2. Parent directories of existing workspaces (depth 2)
+    3. WSL ``/mnt/`` drive mounts (depth 3, Linux/WSL only)
+    """
+    name = name.strip()
+    if not name:
+        return []
+    name_lower = name.lower()
+
+    search_roots: list[tuple[Path, int]] = []
+    seen: set[Path] = set()
+
+    # 1. Home directory
+    search_roots.append((Path.home(), 4))
+
+    # 2. Existing workspace parent directories
+    try:
+        for ws in load_workspaces():
+            p = Path(ws["path"])
+            parent = p.parent if p.parent != p else None
+            if parent and parent not in seen:
+                seen.add(parent)
+                search_roots.append((parent, 2))
+    except Exception:
+        pass
+
+    # 3. WSL /mnt/ mounts (drive letters)
+    mnt = Path("/mnt")
+    if mnt.is_dir():
+        try:
+            for drive in mnt.iterdir():
+                if drive.is_dir() and len(drive.name) == 1 and drive.name.isalpha():
+                    search_roots.append((drive, 3))
+        except (PermissionError, OSError):
+            pass
+
+    found: list[Path] = []
+    for root, max_depth in search_roots:
+        try:
+            _search_dir(root, name_lower, max_depth, _LOCATE_SKIP_DIRS, found, seen)
+        except (PermissionError, OSError):
+            continue
+        if len(found) >= max_results:
+            break
+
+    # Sort by path depth (shallower first), then alphabetically
+    found.sort(key=lambda p: (len(p.parts), str(p).lower()))
+    return [{"path": str(p), "label": p.name} for p in found[:max_results]]

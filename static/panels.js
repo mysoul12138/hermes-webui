@@ -4747,6 +4747,11 @@ function _renderWorkspaceForm({ name, path, isEdit }){
   if (!isEdit) _wireWorkspaceFormPathSuggestions();
   const focus = isEdit ? $('workspaceFormName') : $('workspaceFormPath');
   if (focus) focus.focus();
+  // Add Browse button for folder picker (workspace-picker.js)
+  if (!isEdit && typeof addBrowseButton === 'function') {
+    const pathInput = $('workspaceFormPath');
+    if (pathInput) addBrowseButton(pathInput);
+  }
 }
 
 function cancelWorkspaceForm(){
@@ -4875,13 +4880,19 @@ async function promptWorkspacePath(){
     }catch(e){showToast(t('workspace_switch_failed')+e.message);return;}
     if(!S.session)return;
   }
-  const value=await showPromptDialog({
+  const promptPromise=showPromptDialog({
     title:t('workspace_switch_prompt_title'),
     message:t('workspace_switch_prompt_message'),
     confirmLabel:t('workspace_switch_prompt_confirm'),
     placeholder:t('workspace_switch_prompt_placeholder'),
     value:S.session.workspace||''
   });
+  // Add Browse button next to the dialog input (workspace-picker.js)
+  if(typeof addBrowseButton==='function'){
+    const dialogInput=$('appDialogInput');
+    if(dialogInput) addBrowseButton(dialogInput);
+  }
+  const value=await promptPromise;
   const path=(value||'').trim();
   if(!path)return;
   try{

@@ -4494,6 +4494,14 @@ def handle_get(handler, parsed) -> bool:
             },
         )
 
+    if parsed.path == "/api/workspaces/locate":
+        qs = parse_qs(parsed.query)
+        name = qs.get("name", [""])[0]
+        if not name:
+            return bad(handler, "name is required")
+        from api.workspace import locate_folder_by_name
+        return j(handler, {"matches": locate_folder_by_name(name)})
+
     if parsed.path == "/api/sessions/search":
         return _handle_sessions_search(handler, parsed)
 

@@ -1287,6 +1287,10 @@ const LOCALES = {
     workspace_use: 'Use',
     workspace_add_path_placeholder: 'Add workspace path (e.g. /home/user/my-project)',
     workspace_paths_validated_hint: 'Paths are validated as existing directories before saving.',
+    workspace_browse: 'Browse…',
+    workspace_browse_title: 'Pick a folder from your file system',
+    workspace_locate_no_match: 'No matching folders found. Type the path manually.',
+    workspace_locate_select: 'Select a folder:',
 
     workspace_drag_hint: 'Drag to reorder',
     workspace_reorder_failed: 'Reorder failed',
@@ -8673,6 +8677,10 @@ const LOCALES = {
     workspace_use: '使用',
     workspace_add_path_placeholder: '添加工作区路径（例如 /home/user/my-project）',
     workspace_paths_validated_hint: '保存前会校验路径是否为已存在目录。',
+    workspace_browse: '浏览…',
+    workspace_browse_title: '从文件系统中选择文件夹',
+    workspace_locate_no_match: '未找到匹配的文件夹，请手动输入路径。',
+    workspace_locate_select: '选择一个文件夹：',
 
     workspace_drag_hint: '拖动以重新排序',
     workspace_reorder_failed: '重新排序失败',
