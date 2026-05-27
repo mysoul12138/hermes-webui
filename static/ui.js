@@ -1457,7 +1457,8 @@ function renderModelDropdown(){
       }
       for(const opt of Array.from(child.children)){
         const rawValue=String(opt.value||'');
-        _modelData.push({value:opt.value,name:esc(rawValue),id:esc(opt.value),group:child.label||'',providerId,modelsEndpointError,badge:_getConfiguredModelBadge(opt.value,_badgeMap,providerId)});
+        const displayName=getModelLabel(rawValue);
+        _modelData.push({value:opt.value,name:esc(displayName),id:esc(opt.value),group:child.label||'',providerId,modelsEndpointError,badge:_getConfiguredModelBadge(opt.value,_badgeMap,providerId)});
       }
       if(modelsEndpointError && !child.children.length){
         _modelData.push({value:`__models_endpoint_error__:${providerId||child.label||''}`,name:'',id:'',group:child.label||'',providerId,modelsEndpointError,endpointErrorOnly:true});
@@ -1465,7 +1466,8 @@ function renderModelDropdown(){
     }
     if(child.tagName==='OPTION'){
       const rawValue=String(child.value||'');
-      _modelData.push({value:child.value,name:esc(rawValue),id:esc(child.value),group:'',badge:_getConfiguredModelBadge(child.value,_badgeMap)});
+      const displayName=getModelLabel(rawValue);
+      _modelData.push({value:child.value,name:esc(displayName),id:esc(child.value),group:'',badge:_getConfiguredModelBadge(child.value,_badgeMap)});
     }
   }
   const _existingConfiguredKeys=new Set(_modelData.map(existing=>_normalizeConfiguredModelKey(existing.value)));
@@ -1473,7 +1475,7 @@ function renderModelDropdown(){
     if(_existingConfiguredKeys.has(_normalizeConfiguredModelKey(modelId))) continue;
     _modelData.push({
       value:modelId,
-      name:esc(modelId),
+      name:esc(getModelLabel(modelId)),
       id:esc(modelId),
       group:'',
       badge,
@@ -1601,7 +1603,7 @@ function renderModelDropdown(){
           }
         }
         const badgeHtml=m.badge?`<span class="model-opt-badge model-opt-badge--${esc(m.badge.role||'configured')}">${esc(badgeLabel)}</span>`:'';
-        row.innerHTML=`<div class="model-opt-top"><span class="model-opt-name">${esc(m.value)}</span>${badgeHtml}</div>`;
+        row.innerHTML=`<div class="model-opt-top"><span class="model-opt-name">${esc(m.name)}</span>${badgeHtml}</div>`;
         row.onclick=()=>selectModelFromDropdown(m.value,(m.badge&&m.badge.provider)||m.providerId||null);
         dd.appendChild(row);
       }
@@ -1642,7 +1644,7 @@ function renderModelDropdown(){
       const badgeHtml=m.badge?`<span class="model-opt-badge model-opt-badge--${esc(m.badge.role||'configured')}">${esc(m.badge.label||'Configured')}</span>`:'';
       // Inline provider chip on every row that has a group (#1425)
       const providerChip=m.group?`<span class="model-opt-provider">${esc(m.group)}</span>`:'';
-      row.innerHTML=`<div class="model-opt-top"><span class="model-opt-name">${esc(m.value)}</span>${badgeHtml}${providerChip}</div>`;
+      row.innerHTML=`<div class="model-opt-top"><span class="model-opt-name">${esc(m.name)}</span>${badgeHtml}${providerChip}</div>`;
       row.onclick=()=>selectModelFromDropdown(m.value,m.providerId||(m.badge&&m.badge.provider)||null);
       dd.appendChild(row);
     }
