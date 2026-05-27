@@ -2128,6 +2128,10 @@ def _heuristic_reasoning_efforts(model_id: str, provider_id: str) -> list[str]:
     )
     if any(model.startswith(prefix) for prefix in prefixes):
         return list(VALID_REASONING_EFFORTS)
+    bare = model.rsplit("/", 1)[-1]
+    bare_prefixes = ("gpt-", "o1", "o3", "o4", "claude-", "deepseek-", "gemini-", "qwen", "grok-", "mistral")
+    if any(bare.startswith(p) for p in bare_prefixes):
+        return list(VALID_REASONING_EFFORTS)
     return []
 
 
@@ -2182,7 +2186,8 @@ def resolve_model_reasoning_efforts(
             return []
         return []
 
-    model_lower = model.lower()
+    hinted = _strip_provider_hint_for_reasoning(model).lower()
+    bare = hinted.rsplit("/", 1)[-1]
     prefixes = (
         "deepseek/",
         "anthropic/",
@@ -2194,7 +2199,11 @@ def resolve_model_reasoning_efforts(
         "tencent/hy3-preview",
         "xiaomi/",
     )
-    if any(model_lower.startswith(prefix) for prefix in prefixes):
+    if any(hinted.startswith(prefix) for prefix in prefixes):
+        return list(VALID_REASONING_EFFORTS)
+    # Also match bare model names from custom providers (e.g. gpt-5.5, o3, claude-sonnet-4-6)
+    bare_prefixes = ("gpt-", "o1", "o3", "o4", "claude-", "deepseek-", "gemini-", "qwen", "grok-", "mistral")
+    if any(bare.startswith(p) for p in bare_prefixes):
         return list(VALID_REASONING_EFFORTS)
 
     return []
