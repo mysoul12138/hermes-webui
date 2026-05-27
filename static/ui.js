@@ -1205,7 +1205,7 @@ async function populateModelDropdown(opts={}){
         opt.value=m.id;
         opt.textContent=m.label;
         og.appendChild(opt);
-        _dynamicModelLabels[m.id]=m.id;
+        _dynamicModelLabels[m.id]=getModelLabel(m.id);
       }
       // Hydrate the label map from extra_models too (the catalog tail that
       // doesn't render as <option> entries when the picker is capped — see
@@ -1215,7 +1215,7 @@ async function populateModelDropdown(opts={}){
       // instead of falling back to the bare ID. #1567.
       if(Array.isArray(g.extra_models)){
         for(const m of g.extra_models){
-          if(m && m.id) _dynamicModelLabels[m.id]=m.id;
+          if(m && m.id) _dynamicModelLabels[m.id]=getModelLabel(m.id);
         }
       }
       sel.appendChild(og);
