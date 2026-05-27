@@ -148,6 +148,9 @@
     if (!_supportsFolderPicker() && !_supportsFileInputFallback()) {
       return; // No way to pick folders — don't add the button
     }
+    // Guard: don't add duplicate buttons to the same input
+    var wrap = inputEl && (inputEl.closest('.workspace-form-path-wrap') || inputEl.parentNode);
+    if (wrap && wrap.querySelector('.ws-browse-btn')) return;
 
     var btn = document.createElement('button');
     btn.type = 'button';
