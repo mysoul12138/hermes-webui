@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 ROUTES_PY = (ROOT / "api" / "routes.py").read_text(encoding="utf-8")
 SESSIONS_JS = (ROOT / "static" / "sessions.js").read_text(encoding="utf-8")
+SESSION_LIST_STATE_JS = (ROOT / "static" / "session-list-state.js").read_text(encoding="utf-8")
 
 
 def _function_block(src: str, name: str) -> str:

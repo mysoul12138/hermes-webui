@@ -11,6 +11,7 @@ from tests._pytest_port import BASE
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ROUTES_PY = (ROOT / "api" / "routes.py").read_text()
 SESSIONS_JS = (ROOT / "static" / "sessions.js").read_text()
+SESSION_LIST_STATE_JS = (ROOT / "static" / "session-list-state.js").read_text()
 STYLE_CSS = (ROOT / "static" / "style.css").read_text()
 
 
@@ -74,13 +75,13 @@ def test_session_pin_cap_has_backend_and_frontend_guards():
     assert 'if len(pinned_ids) >= pinned_sessions_limit:' in ROUTES_PY
     assert 'Up to {pinned_sessions_limit} sessions can be pinned' in ROUTES_PY
 
-    assert 'function _pinnedSessionCount()' in SESSIONS_JS
-    assert 'function _getPinnedSessionsLimit()' in SESSIONS_JS
+    assert 'function _pinnedSessionCount()' in SESSION_LIST_STATE_JS
+    assert 'function _getPinnedSessionsLimit()' in SESSION_LIST_STATE_JS
     assert 'function _pinnedSessionsLimit()' not in SESSIONS_JS
     assert 'const pinLimitReached=!session.pinned&&_pinnedSessionCount()>=_getPinnedSessionsLimit();' not in SESSIONS_JS
     assert 'if(pinLimitReached)' not in SESSIONS_JS
     assert "await api('/api/session/pin'" in SESSIONS_JS
-    assert 'Only ${limit} conversations can be pinned' in SESSIONS_JS
+    assert 'Only ${limit} conversations can be pinned' in SESSION_LIST_STATE_JS
     assert ".session-action-opt.is-disabled{opacity:.55;cursor:not-allowed;}" in STYLE_CSS
 
 

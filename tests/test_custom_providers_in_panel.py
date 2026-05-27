@@ -203,7 +203,8 @@ class TestCustomProvidersInGetProviders:
         assert "_ensureProviderRefreshButton(provider);" in provider_src
         assert "if(!provider||!provider.id){" not in provider_src
         assert "refreshBtn.hidden=false;" in provider_src
-        assert "refreshBtn.onclick=()=>_refreshProviderModels(provider||{id:''}, refreshBtn);" in provider_src
+        assert "const providerId=(provider&&typeof provider==='object'&&typeof provider.id==='string'&&provider.id.trim())" in provider_src
+        assert "refreshBtn.onclick=()=>_refreshProviderModels(providerId, refreshBtn);" in provider_src
         for key in (
             "providers_add_provider",
             "providers_refresh_models",
@@ -240,7 +241,8 @@ class TestCustomProvidersInGetProviders:
         assert "function _refreshProviderModels" in provider_src
         assert "function _ensureProviderRefreshButton(provider)" in provider_src
         assert "refreshBtn.hidden=false;" in provider_src
-        assert "refreshBtn.onclick=()=>_refreshProviderModels(provider||{id:''}, refreshBtn);" in provider_src
+        assert "const providerId=(provider&&typeof provider==='object'&&typeof provider.id==='string'&&provider.id.trim())" in provider_src
+        assert "refreshBtn.onclick=()=>_refreshProviderModels(providerId, refreshBtn);" in provider_src
         assert "const PROVIDER_MODEL_DATALIST_ID = 'providerConfigModelOptions';" in provider_src
         assert "input.setAttribute('list', PROVIDER_MODEL_DATALIST_ID);" in provider_src
         assert "function _setProviderModelOptions(models)" in provider_src

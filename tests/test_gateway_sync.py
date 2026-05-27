@@ -821,7 +821,7 @@ def test_agent_session_source_normalization_contract():
 
 def test_sessions_js_treats_email_as_messaging_source():
     """Email gateway sessions should receive the same sidebar metadata as other messaging channels."""
-    src = (REPO_ROOT / "static" / "sessions.js").read_text(encoding="utf-8")
+    src = (REPO_ROOT / "static" / "session-list-state.js").read_text(encoding="utf-8")
 
     assert "'email'" in src[src.find("_MESSAGING_RAW_SOURCES"):src.find("function _isMessagingSession")]
     assert "email: 'Email'" in src[src.find("_MESSAGING_SOURCE_LABELS"):src.find("function _isMessagingSession")]
