@@ -2129,7 +2129,7 @@ def _heuristic_reasoning_efforts(model_id: str, provider_id: str) -> list[str]:
     if any(model.startswith(prefix) for prefix in prefixes):
         return list(VALID_REASONING_EFFORTS)
     bare = model.rsplit("/", 1)[-1]
-    bare_prefixes = ("gpt-", "o1", "o3", "o4", "claude-", "deepseek-", "gemini-", "qwen", "grok-", "mistral")
+    bare_prefixes = ("gpt-", "o1", "o3", "o4", "claude-", "deepseek-", "gemini-", "qwen", "grok-", "mistral", "mimo")
     if any(bare.startswith(p) for p in bare_prefixes):
         return list(VALID_REASONING_EFFORTS)
     return []
@@ -2202,7 +2202,7 @@ def resolve_model_reasoning_efforts(
     if any(hinted.startswith(prefix) for prefix in prefixes):
         return list(VALID_REASONING_EFFORTS)
     # Also match bare model names from custom providers (e.g. gpt-5.5, o3, claude-sonnet-4-6)
-    bare_prefixes = ("gpt-", "o1", "o3", "o4", "claude-", "deepseek-", "gemini-", "qwen", "grok-", "mistral")
+    bare_prefixes = ("gpt-", "o1", "o3", "o4", "claude-", "deepseek-", "gemini-", "qwen", "grok-", "mistral", "mimo")
     if any(bare.startswith(p) for p in bare_prefixes):
         return list(VALID_REASONING_EFFORTS)
 
