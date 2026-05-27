@@ -100,7 +100,9 @@ let _allProjects = [];  // cached project list
 const NO_PROJECT_FILTER = '__none__';
 let _activeProject = null;  // project_id filter (null = show all, NO_PROJECT_FILTER = unassigned only)
 let _showAllProfiles = false;  // false = filter to active profile only
-let _otherProfileCount = 0;       // count of sessions from other profiles (server-reported)
+let _otherProfileCount = 0;
+let _sessionSourceFilter = 'webui';  // 'webui' keeps WebUI chats separate from read-only CLI sessions
+_restoreSessionSourceFilter();
 let _sessionActionMenu = null;
 let _sessionActionAnchor = null;
 let _sessionActionSessionId = null;
@@ -117,6 +119,13 @@ let _sessionVirtualScrollList = null;
 let _sessionVirtualScrollRaf = 0;
 
 // ── Pure session state accessors ───────────────────────────────────────────
+function _restoreSessionSourceFilter() {
+  try {
+    const raw = localStorage.getItem('hermes-session-source-filter');
+    if (raw === 'cli' || raw === 'webui') _sessionSourceFilter = raw;
+  } catch (_e) {}
+}
+
 function _sessionSnapshotById(sid){
   if(!sid)return null;
   if(S.session&&S.session.session_id===sid) return S.session;
