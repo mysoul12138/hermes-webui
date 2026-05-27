@@ -124,7 +124,6 @@ function _setProviderModelOptions(models){
   for(const model of _normalizeProviderModels(models)){
     const option=document.createElement('option');
     option.value=model.id;
-    if(model.label&&model.label!==model.id) option.label=model.label;
     datalist.appendChild(option);
   }
 }
