@@ -2316,11 +2316,7 @@ def new_session(workspace=None, model=None, profile=None, model_provider=None, p
         s.save()
     return s
 
-def _is_cron_session(s: dict) -> bool:
-    """Return True if the session is a cron session."""
-    sid = str(s.get('session_id') or '')
-    source = s.get('source_tag') or s.get('source')
-    return source == 'cron' or sid.startswith('cron_')
+
 
 
 def _hide_from_default_sidebar(session: dict) -> bool:
@@ -2599,7 +2595,7 @@ def _diag_stage(diag, name: str) -> None:
             pass
 
 
-def all_sessions(diag=None, include_cron=False):
+def all_sessions(diag=None):
     _diag_stage(diag, "all_sessions.active_streams")
     active_stream_ids = _active_stream_ids()
     # Phase C: try index first for O(1) read; fall back to full scan
@@ -2687,10 +2683,7 @@ def all_sessions(diag=None, include_cron=False):
             )]
             result = _prefer_fuller_snapshots_for_sidebar(result)
             sidebar_candidates = result
-            if include_cron:
-                visible_result = [s for s in sidebar_candidates if not _hide_from_default_sidebar(s) or _is_cron_session(s)]
-            else:
-                visible_result = [s for s in sidebar_candidates if not _hide_from_default_sidebar(s)]
+            visible_result = [s for s in sidebar_candidates if not _hide_from_default_sidebar(s)]
             result = _preserve_messageful_sidebar_discoverability(sidebar_candidates, visible_result)
             result = _include_project_hidden_background_sidebar_sessions(sidebar_candidates, result)
             _strip_sidebar_internal_flags(result)
@@ -2731,10 +2724,7 @@ def all_sessions(diag=None, include_cron=False):
     )]
     result = _prefer_fuller_snapshots_for_sidebar(result)
     sidebar_candidates = result
-    if include_cron:
-        visible_result = [s for s in sidebar_candidates if not _hide_from_default_sidebar(s) or _is_cron_session(s)]
-    else:
-        visible_result = [s for s in sidebar_candidates if not _hide_from_default_sidebar(s)]
+    visible_result = [s for s in sidebar_candidates if not _hide_from_default_sidebar(s)]
     result = _preserve_messageful_sidebar_discoverability(sidebar_candidates, visible_result)
     result = _include_project_hidden_background_sidebar_sessions(sidebar_candidates, result)
     _strip_sidebar_internal_flags(result)

@@ -6,8 +6,6 @@ Extracted from api/routes.py to reduce merge conflicts with upstream.
 
 import logging
 import time
-from urllib.parse import parse_qs
-
 logger = logging.getLogger(__name__)
 
 
@@ -83,12 +81,11 @@ def handle_sessions_endpoint(handler, parsed, j, bad):
     diag = RequestDiagnostics.maybe_start("GET", parsed.path, logger=logger)
     try:
         diag.stage("all_sessions")
-        include_cron = 'include_cron' in parse_qs(parsed.query)
-        webui_sessions = all_sessions(diag=diag, include_cron=include_cron)
+        webui_sessions = all_sessions(diag=diag)
         diag.stage("reconcile_stale_stream_state")
         if _reconcile_stale_stream_state_for_session_rows(webui_sessions):
             diag.stage("all_sessions_after_stale_stream_reconcile")
-            webui_sessions = all_sessions(diag=diag, include_cron=include_cron)
+            webui_sessions = all_sessions(diag=diag)
         diag.stage("load_settings")
         settings = load_settings()
         show_cli_sessions = bool(settings.get("show_cli_sessions"))
@@ -115,21 +112,13 @@ def handle_sessions_endpoint(handler, parsed, j, bad):
             represented_webui_ids = set()
             for s in webui_sessions:
                 represented_webui_ids.update(_session_lineage_ids(s))
-            if include_cron:
-                deduped_cli = [
-                    s for s in cli
-                    if s["session_id"] not in represented_webui_ids
-                    and not _is_duplicate_webui_state_projection(s, represented_webui_ids)
-                    and is_cli_session_row_visible(s)
-                ]
-            else:
-                deduped_cli = [
-                    s for s in cli
-                    if s["session_id"] not in represented_webui_ids
-                    and not _is_duplicate_webui_state_projection(s, represented_webui_ids)
-                    and is_cli_session_row_visible(s)
-                    and not _cron_hide(s)
-                ]
+            deduped_cli = [
+                s for s in cli
+                if s["session_id"] not in represented_webui_ids
+                and not _is_duplicate_webui_state_projection(s, represented_webui_ids)
+                and is_cli_session_row_visible(s)
+                and not _cron_hide(s)
+            ]
         else:
             diag.stage("filter_webui_sessions")
             webui_sessions = [s for s in webui_sessions if not _is_cli_session_for_settings(s)]

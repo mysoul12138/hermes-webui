@@ -2288,9 +2288,8 @@ async function renderSessionList(opts={}){
   try{
     if(!($('sessionSearch').value||'').trim()) _contentSearchResults = [];
     const allProfilesQS = _showAllProfiles ? '?all_profiles=1' : '';
-    const includeCronQS = _activeProject ? (allProfilesQS ? '&' : '?') + 'include_cron=1' : '';
     const [sessData, projData] = await Promise.all([
-      api('/api/sessions' + allProfilesQS + includeCronQS,{timeoutToast:false}),
+      api('/api/sessions' + allProfilesQS,{timeoutToast:false}),
       api('/api/projects' + allProfilesQS,{timeoutToast:false}),
     ]);
     // Discard stale response — a newer renderSessionList() call superseded us.
