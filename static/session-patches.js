@@ -1,9 +1,4 @@
 // ── Session list patches (decoupled from upstream sessions.js) ──
-// Bug 1: Cron sessions not appearing when "Cron Jobs" project chip is selected.
-//   Root cause: project chip click calls renderSessionListFromCache() which only
-//   re-renders cached data. The initial page load fetches /api/sessions WITHOUT
-//   include_cron=1, so cron sessions are filtered server-side and never reach
-//   _allSessions. Selecting the cron project needs a full re-fetch.
 // Bug 2: Unread notification dot persists after clicking into a session.
 //   Root cause: _hasUnreadForSession() checks _hasSessionCompletionUnread()
 //   FIRST — if the flag is set, it returns true immediately without comparing
@@ -14,33 +9,13 @@
 //   same session.  This is the correct coupling point — whenever the system
 //   records "user has seen N messages", the completion-unread flag should be
 //   cleared because the user has acknowledged those messages.
+//
+// Note: Bug 1 (Cron project re-fetch) was removed — upstream PR #3069
+// implemented _include_project_hidden_background_sidebar_sessions + default_hidden
+// which covers the same functionality.
 
 (function () {
   'use strict';
-
-  // ── Bug 1: Cron project selection needs server re-fetch ──
-  var _origRenderFromCache = window.renderSessionListFromCache;
-  if (typeof _origRenderFromCache === 'function') {
-    var _cronFetchDone = false;
-    window.renderSessionListFromCache = function () {
-      // Run original render first so the sidebar is up-to-date.
-      _origRenderFromCache.apply(this, arguments);
-
-      // After rendering, check if the "Cron Jobs" chip is the active project.
-      var chips = document.querySelectorAll('.project-chip.active');
-      for (var i = 0; i < chips.length; i++) {
-        if ((chips[i].textContent || '').indexOf('Cron') !== -1) {
-          if (!_cronFetchDone && typeof window.renderSessionList === 'function') {
-            _cronFetchDone = true;
-            window.renderSessionList();
-          }
-          return;
-        }
-      }
-      // Reset when project is cleared or changed away from cron.
-      _cronFetchDone = false;
-    };
-  }
 
   // ── Bug 2a: Wrap _setSessionViewedCount to clear completion-unread ──
   // _hasUnreadForSession checks completion-unread FIRST (short-circuits).
