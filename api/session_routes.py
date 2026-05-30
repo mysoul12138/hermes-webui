@@ -76,6 +76,7 @@ def handle_sessions_endpoint(handler, parsed, j, bad):
         load_settings,
         CLI_VISIBLE_SESSION_CAP,
     )
+    from api.models import ensure_cron_project
     from api.profiles import get_active_profile_name, _profiles_match
 
     diag = RequestDiagnostics.maybe_start("GET", parsed.path, logger=logger)
@@ -93,6 +94,17 @@ def handle_sessions_endpoint(handler, parsed, j, bad):
         if show_cli_sessions:
             diag.stage("get_cli_sessions")
             cli = get_cli_sessions()
+            # Backfill project_id for CLI cron sessions missing it (#3172).
+            # Agent-created cron sessions in state.db never get project_id;
+            # without it, _include_project_hidden_background_sidebar_sessions
+            # skips them and they become invisible under project chips.
+            _cron_pid = ensure_cron_project()
+            for s in cli:
+                if not s.get('project_id') and (
+                    s.get('source_tag') == 'cron'
+                    or str(s.get('session_id', '')).startswith('cron_')
+                ):
+                    s['project_id'] = _cron_pid
             diag.stage("merge_cli_sessions")
             cli_by_id = {s["session_id"]: s for s in cli}
             for s in webui_sessions:
