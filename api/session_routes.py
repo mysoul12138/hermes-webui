@@ -58,8 +58,12 @@ def handle_sessions_endpoint(handler, parsed, j, bad):
     Returns:
         True if the request was handled.
     """
+    from api.request_diagnostics import RequestDiagnostics
+    from api.helpers import _redact_text
+    from api.models import all_sessions, get_cli_sessions
+    from api.agent_sessions import is_cli_session_row_visible
+    from api.config import load_settings
     from api.routes import (
-        RequestDiagnostics,
         _all_profiles_query_flag,
         _cap_recent_cli_sessions,
         _is_cli_session_for_settings,
@@ -69,11 +73,6 @@ def handle_sessions_endpoint(handler, parsed, j, bad):
         _dedupe_cli_sidebar_sessions_for_api,
         _normalize_sidebar_source_flags,
         _reconcile_stale_stream_state_for_session_rows,
-        _redact_text,
-        all_sessions,
-        get_cli_sessions,
-        is_cli_session_row_visible,
-        load_settings,
         CLI_VISIBLE_SESSION_CAP,
     )
     from api.profiles import get_active_profile_name, _profiles_match

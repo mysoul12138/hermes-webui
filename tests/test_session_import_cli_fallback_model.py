@@ -334,9 +334,11 @@ def test_sessions_endpoint_suppresses_duplicate_webui_state_projection(monkeypat
     """The /api/sessions merge should not add WebUI state.db lineage duplicates."""
     import api.profiles as profiles
     import api.routes as routes
+    import api.models as models
+    import api.config as config
 
     monkeypatch.setattr(routes, "_reconcile_stale_stream_state_for_session_rows", lambda _sessions: False)
-    monkeypatch.setattr(routes, "load_settings", lambda: {"show_cli_sessions": True})
+    monkeypatch.setattr(config, "load_settings", lambda: {"show_cli_sessions": True})
     monkeypatch.setattr(profiles, "get_active_profile_name", lambda: "default")
 
     webui_row = {
@@ -376,8 +378,8 @@ def test_sessions_endpoint_suppresses_duplicate_webui_state_projection(monkeypat
         "_lineage_tip_id": "telegram_tip",
     }
 
-    monkeypatch.setattr(routes, "all_sessions", lambda diag=None: [webui_row])
-    monkeypatch.setattr(routes, "get_cli_sessions", lambda: [duplicate_webui_projection, external_projection])
+    monkeypatch.setattr(models, "all_sessions", lambda diag=None: [webui_row])
+    monkeypatch.setattr(models, "get_cli_sessions", lambda: [duplicate_webui_projection, external_projection])
 
     handler = _FakeHandler()
     routes.handle_get(handler, urlparse("http://example.com/api/sessions"))

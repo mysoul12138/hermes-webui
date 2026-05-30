@@ -156,12 +156,11 @@ def test_keep_latest_messaging_runs_after_profile_filter():
     from pathlib import Path
 
     repo_root = Path(__file__).parent.parent
-    src = (repo_root / 'api' / 'routes.py').read_text(encoding='utf-8')
+    src = (repo_root / 'api' / 'session_routes.py').read_text(encoding='utf-8')
 
-    handler_idx = src.find('parsed.path == "/api/sessions":')
-    assert handler_idx > 0
-    next_handler = src.find('parsed.path == "/api/projects":', handler_idx)
-    block = src[handler_idx:next_handler]
+    handler_idx = src.find('def handle_sessions_endpoint(')
+    assert handler_idx > 0, "handle_sessions_endpoint not found in session_routes.py"
+    block = src[handler_idx:]
 
     filter_idx = block.find('_profiles_match(s.get("profile"), active_profile)')
     # The dedupe call can be either single-line `(scoped)` or multi-line

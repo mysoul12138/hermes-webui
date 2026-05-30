@@ -4,6 +4,8 @@ from urllib.parse import urlparse
 
 import api.profiles as profiles
 import api.routes as routes
+import api.models as models
+import api.config as config
 
 
 class _FakeHandler:
@@ -64,10 +66,10 @@ def test_sessions_list_reconciles_stale_stream_state_before_serializing(monkeypa
         session.active_stream_id = None
         return True
 
-    monkeypatch.setattr(routes, "all_sessions", fake_all_sessions)
+    monkeypatch.setattr(models, "all_sessions", fake_all_sessions)
     monkeypatch.setattr(routes, "get_session", fake_get_session)
     monkeypatch.setattr(routes, "_clear_stale_stream_state", fake_clear_stale_stream_state)
-    monkeypatch.setattr(routes, "load_settings", lambda: {"show_cli_sessions": False})
+    monkeypatch.setattr(config, "load_settings", lambda: {"show_cli_sessions": False})
     monkeypatch.setattr(profiles, "get_active_profile_name", lambda: "default")
 
     handler = _FakeHandler()
