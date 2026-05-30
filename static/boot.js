@@ -1343,11 +1343,17 @@ const _SKINS=[
   {name:'Catppuccin',colors:['#CBA6F7','#B4BEFE','#8839EF']},
   {name:'Hepburn',   colors:['#c6246a','#ec5597','#f2abca']},
   {name:'Nous',     colors:['#4682B4','#3A6E9A','#2C5F88']},
+  {name:'Neon',     colors:['#B347FF','#C76BFF','#00DDFF']},
   {name:'Geist Contrast', value:'geist-contrast', colors:['#000000','#ffffff','#FFF175']},
   {name:'Pure Ink', value:'pure-ink', colors:['#1a1a1a','#252525','#f0f0f0']},
 ];
 const _VALID_THEMES=new Set((_THEMES||[]).map(t=>t.value));
 const _VALID_SKINS=new Set((_SKINS||[]).map(s=>(s.value||s.name).toLowerCase()));
+// Persist skins whitelist for first-paint script in index.html.
+// index.html reads localStorage('hermes-skins') to extend its hardcoded
+// whitelist, so custom skins (e.g. pure-ink) survive first-paint without
+// modifying the upstream whitelist line.
+try{var _skinObj={};_VALID_SKINS.forEach(function(k){_skinObj[k]=1});localStorage.setItem('hermes-skins',JSON.stringify(_skinObj));}catch(e){}
 const _LEGACY_THEME_MAP={
   slate:{theme:'dark',skin:'slate'},
   solarized:{theme:'dark',skin:'poseidon'},
