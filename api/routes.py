@@ -2454,32 +2454,26 @@ def _cap_recent_cli_sessions(sessions: list[dict], cli_cap: int = CLI_VISIBLE_SE
 
 
 def _dedupe_cli_sidebar_sessions_for_api(cli: list[dict], represented_webui_ids: set[str]) -> list[dict]:
-    """Deduplicate CLI sessions against the WebUI sidebar list.
+    """Return CLI/state sidebar rows while preserving project-hidden cron rows.
 
-    Filters out CLI sessions already represented by WebUI rows, then rescues
-    agent-side cron sessions that have project_id + messages so they appear
-    under the Cron Jobs project chip with default_hidden=True.
+    Agent-side cron sessions come from state.db rather than the WebUI session
+    store. They should stay hidden from the default sidebar, but project-assigned
+    messageful rows must remain in the `/api/sessions` payload with
+    `default_hidden` so the matching project chip can reveal them (#3134).
     """
-    from api.models import _hide_from_default_sidebar as _cron_hide, _sidebar_message_count
+    from api.models import (
+        _hide_from_default_sidebar as _cron_hide,
+        _include_project_hidden_background_sidebar_sessions,
+    )
 
-    deduped_cli_base = [
+    candidates = [
         s for s in cli
         if s["session_id"] not in represented_webui_ids
         and not _is_duplicate_webui_state_projection(s, represented_webui_ids)
         and is_cli_session_row_visible(s)
-        and not _cron_hide(s)
     ]
-    deduped_cli_ids = {s["session_id"] for s in deduped_cli_base}
-    cron_rescued = [
-        {**s, "default_hidden": True}
-        for s in cli
-        if _cron_hide(s)
-        and s.get("project_id")
-        and _sidebar_message_count(s) > 0
-        and s["session_id"] not in deduped_cli_ids
-        and s["session_id"] not in represented_webui_ids
-    ]
-    return deduped_cli_base + cron_rescued
+    visible = [s for s in candidates if not _cron_hide(s)]
+    return _include_project_hidden_background_sidebar_sessions(candidates, visible)
 
 
 def _merge_cli_sidebar_metadata(ui_session: dict, cli_meta: dict) -> dict:
