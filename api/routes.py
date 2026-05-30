@@ -2453,6 +2453,35 @@ def _cap_recent_cli_sessions(sessions: list[dict], cli_cap: int = CLI_VISIBLE_SE
     return kept
 
 
+def _dedupe_cli_sidebar_sessions_for_api(cli: list[dict], represented_webui_ids: set[str]) -> list[dict]:
+    """Deduplicate CLI sessions against the WebUI sidebar list.
+
+    Filters out CLI sessions already represented by WebUI rows, then rescues
+    agent-side cron sessions that have project_id + messages so they appear
+    under the Cron Jobs project chip with default_hidden=True.
+    """
+    from api.models import _hide_from_default_sidebar as _cron_hide, _sidebar_message_count
+
+    deduped_cli_base = [
+        s for s in cli
+        if s["session_id"] not in represented_webui_ids
+        and not _is_duplicate_webui_state_projection(s, represented_webui_ids)
+        and is_cli_session_row_visible(s)
+        and not _cron_hide(s)
+    ]
+    deduped_cli_ids = {s["session_id"] for s in deduped_cli_base}
+    cron_rescued = [
+        {**s, "default_hidden": True}
+        for s in cli
+        if _cron_hide(s)
+        and s.get("project_id")
+        and _sidebar_message_count(s) > 0
+        and s["session_id"] not in deduped_cli_ids
+        and s["session_id"] not in represented_webui_ids
+    ]
+    return deduped_cli_base + cron_rescued
+
+
 def _merge_cli_sidebar_metadata(ui_session: dict, cli_meta: dict) -> dict:
     """Merge source-of-truth CLI metadata into a sidebar session row.
 
