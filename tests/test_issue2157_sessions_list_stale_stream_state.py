@@ -6,6 +6,8 @@ import api.profiles as profiles
 import api.routes as routes
 import api.models as models
 import api.config as config
+import api.session_sidebar as session_sidebar
+import api.session_routes as session_routes
 
 
 class _FakeHandler:
@@ -67,8 +69,8 @@ def test_sessions_list_reconciles_stale_stream_state_before_serializing(monkeypa
         return True
 
     monkeypatch.setattr(models, "all_sessions", fake_all_sessions)
-    monkeypatch.setattr(routes, "get_session", fake_get_session)
-    monkeypatch.setattr(routes, "_clear_stale_stream_state", fake_clear_stale_stream_state)
+    monkeypatch.setattr(session_sidebar, "get_session", fake_get_session)
+    monkeypatch.setattr(session_sidebar, "_clear_stale_stream_state", fake_clear_stale_stream_state)
     monkeypatch.setattr(config, "load_settings", lambda: {"show_cli_sessions": False})
     monkeypatch.setattr(profiles, "get_active_profile_name", lambda: "default")
 

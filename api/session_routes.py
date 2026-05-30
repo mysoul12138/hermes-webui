@@ -63,7 +63,7 @@ def handle_sessions_endpoint(handler, parsed, j, bad):
     from api.models import all_sessions, get_cli_sessions
     from api.agent_sessions import is_cli_session_row_visible
     from api.config import load_settings
-    from api.routes import (
+    from api.session_sidebar import (
         _all_profiles_query_flag,
         _cap_recent_cli_sessions,
         _is_cli_session_for_settings,
