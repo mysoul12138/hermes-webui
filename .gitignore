@@ -62,3 +62,7 @@ graphify-out/
 
 # Local CodeGraph index — machine-specific, generated, never committed
 .codegraph/
+
+# Dev-only lint tooling (ESLint runtime-error guard) — see TESTING.md
+node_modules/
+package-lock.json
