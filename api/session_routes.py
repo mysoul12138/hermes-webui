@@ -66,6 +66,7 @@ def handle_sessions_endpoint(handler, parsed, j, bad):
         _is_messaging_session_record,
         _keep_latest_messaging_session_per_source,
         _merge_cli_sidebar_metadata,
+        _dedupe_cli_sidebar_sessions_for_api,
         _normalize_sidebar_source_flags,
         _reconcile_stale_stream_state_for_session_rows,
         _redact_text,
@@ -75,8 +76,6 @@ def handle_sessions_endpoint(handler, parsed, j, bad):
         load_settings,
         CLI_VISIBLE_SESSION_CAP,
     )
-    from api.models import _hide_from_default_sidebar as _cron_hide
-    from api.models import _sidebar_message_count
     from api.profiles import get_active_profile_name, _profiles_match
 
     diag = RequestDiagnostics.maybe_start("GET", parsed.path, logger=logger)
@@ -113,26 +112,7 @@ def handle_sessions_endpoint(handler, parsed, j, bad):
             represented_webui_ids = set()
             for s in webui_sessions:
                 represented_webui_ids.update(_session_lineage_ids(s))
-            deduped_cli_base = [
-                s for s in cli
-                if s["session_id"] not in represented_webui_ids
-                and not _is_duplicate_webui_state_projection(s, represented_webui_ids)
-                and is_cli_session_row_visible(s)
-                and not _cron_hide(s)
-            ]
-            # Rescue CLI cron sessions that have project_id + messages,
-            # mirroring upstream _include_project_hidden_background_sidebar_sessions.
-            deduped_cli_ids = {s["session_id"] for s in deduped_cli_base}
-            cron_rescued = [
-                {**s, "default_hidden": True}
-                for s in cli
-                if _cron_hide(s)
-                and s.get("project_id")
-                and _sidebar_message_count(s) > 0
-                and s["session_id"] not in deduped_cli_ids
-                and s["session_id"] not in represented_webui_ids
-            ]
-            deduped_cli = deduped_cli_base + cron_rescued
+            deduped_cli = _dedupe_cli_sidebar_sessions_for_api(cli, represented_webui_ids)
         else:
             diag.stage("filter_webui_sessions")
             webui_sessions = [s for s in webui_sessions if not _is_cli_session_for_settings(s)]
