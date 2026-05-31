@@ -580,7 +580,14 @@ async function _removeProviderKey(providerId){
       if(els.saveBtn){els.saveBtn.disabled=false;els.saveBtn.textContent=t('providers_save');}
     }
   }catch(e){
-    showToast(t('error_prefix')+(e.message||String(e)));
+    // A 403 from /api/providers/delete fires when the CSRF cookie/header
+    // pair has drifted. Pass the server's message through verbatim so the
+    // deployment-shape failure keeps its actionable hint.
+    if(e&&e.status===403){
+      showToast(e.message||'Session expired. Reload the page and try again.',6000,'error');
+    }else{
+      showToast(t('error_prefix')+(e.message||String(e)));
+    }
     if(els.saveBtn){els.saveBtn.disabled=false;els.saveBtn.textContent=t('providers_save');}
   }
 }
@@ -918,13 +925,15 @@ function _buildProviderQuotaCard(status){
     <div class="provider-quota-header">
       <div>
         <div class="provider-quota-title">${esc(t('provider_quota_title'))}</div>
-        <div class="provider-quota-provider">${esc(provider)}</div>
+        <div class="provider-quota-subtitle">${esc(provider)}</div>
+        <div class="provider-quota-checked">${esc(_formatProviderQuotaLastChecked(status))}</div>
       </div>
-      <button type="button" class="provider-card-btn provider-card-btn-ghost" data-provider-quota-refresh>${esc(t('provider_quota_refresh_usage'))}</button>
+      <div class="provider-quota-actions">
+        <span class="provider-quota-badge">${esc(_providerQuotaStatusLabel(state))}</span>
+        <button class="provider-quota-refresh" type="button" data-provider-quota-refresh title="${esc(t('provider_quota_refresh_title'))}">${esc(t('provider_quota_refresh_usage'))}</button>
+      </div>
     </div>
-    <div class="provider-quota-status provider-quota-status-${state}">${esc(_providerQuotaStatusLabel(status.status))}</div>
     <div class="provider-quota-body">${body}</div>
-    <div class="provider-quota-footer">${esc(_formatProviderQuotaLastChecked(status))}</div>
   `;
   const refreshBtn=card.querySelector('[data-provider-quota-refresh]');
   if(refreshBtn) refreshBtn.addEventListener('click',()=>_refreshProviderQuota(card,refreshBtn));
