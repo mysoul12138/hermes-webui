@@ -1114,6 +1114,13 @@
               </select>
               <div style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_tts_provider">Choose browser Web Speech or optional server-side Edge TTS MP3 playback.</div>
             </div>
+            <div class="settings-field">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="checkbox" id="settingsRawAudio" style="width:15px;height:15px;accent-color:var(--accent)">
+                <span data-i18n="settings_label_raw_audio">Send raw audio instead of transcribing</span>
+              </label>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_raw_audio">Record and send the original audio file to the agent instead of converting it to text first. The agent can then transcribe it or process the raw audio (emotion, background noise, custom STT). Like Telegram's voice message behavior.</div>
+            </div>
             <div class="settings-field" id="settingsTtsVoiceField">
               <label id="settingsTtsVoiceLabel" for="settingsTtsVoice" data-i18n="settings_label_tts_voice">Voice</label>
               <select id="settingsTtsVoice" data-tts-provider-control="browser" style="width:100%;padding:8px;background:var(--code-bg);color:var(--text);border:1px solid var(--border2);border-radius:6px">
