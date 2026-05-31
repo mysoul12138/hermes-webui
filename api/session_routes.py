@@ -63,6 +63,9 @@ def handle_sessions_endpoint(handler, parsed, j, bad):
     from api.models import all_sessions, get_cli_sessions
     from api.agent_sessions import is_cli_session_row_visible
     from api.config import load_settings
+    from api.routes import (
+        _session_attention_summary,
+    )
     from api.session_sidebar import (
         _all_profiles_query_flag,
         _cap_recent_cli_sessions,
@@ -148,6 +151,7 @@ def handle_sessions_endpoint(handler, parsed, j, bad):
             item = dict(s)
             if isinstance(item.get("title"), str):
                 item["title"] = _redact_text(item["title"])
+            item["attention"] = _session_attention_summary(str(item.get("session_id") or ""))
             safe_merged.append(item)
         diag.stage("response_write")
         return j(handler, {

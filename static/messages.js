@@ -1126,10 +1126,20 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
   }
   // Allowed URL schemes for anchors and images rendered from agent-streamed markdown.
   // Raw file:// anchors are rewritten to /api/media before the user can click them.
-  const _SMD_SAFE_URL_RE=/^(?:https?:|mailto:|tel:|\/|#|\?|\.|api)/i;
+  const _SMD_SAFE_URL_RE=/^(?:https?:|mailto:|tel:|\/|#|\?|\.|api|session\/)/i;
   const _SMD_SAFE_IMG_URL_RE=/^(?:https?:|mailto:|tel:|\/|#|\?|\.)/i;
   function _smdLinkHref(raw){
     const href=String(raw||'');
+    if(/^session:\/\//i.test(href)){
+      const sid=href.replace(/^session:\/\//i,'').split(/[?#]/)[0];
+      try{
+        const decoded=decodeURIComponent(sid);
+        if(typeof _sessionUrlForSid==='function') return _sessionUrlForSid(decoded);
+        return 'session/'+encodeURIComponent(decoded);
+      }catch(_){
+        return 'session/'+encodeURIComponent(sid);
+      }
+    }
     if(/^workspace:\/\//i.test(href)){
       try{
         const rel=decodeURIComponent(href.replace(/^workspace:\/\//i,'')).replace(/^~\//,'').replace(/^\.\//,'');
@@ -1154,7 +1164,7 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
     const _a=root.querySelectorAll('a[href]');
     for(let i=0;i<_a.length;i++){
       const n=_a[i],v=n.getAttribute('href')||'';
-      if(/^(file|workspace):\/\//i.test(v)){n.setAttribute('href',_smdLinkHref(v));continue;}
+      if(/^(file|workspace|session):\/\//i.test(v)){n.setAttribute('href',_smdLinkHref(v));n.classList&&/^session:\/\//i.test(v)&&n.classList.add('session-link');continue;}
       if(!_SMD_SAFE_URL_RE.test(v)){n.removeAttribute('href');n.setAttribute('data-blocked-scheme','1');}
     }
     const _im=root.querySelectorAll('img[src]');
@@ -1265,8 +1275,12 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
       const isHref=window.smd&&attr===window.smd.HREF;
       const isSrc=window.smd&&attr===window.smd.SRC;
       const safeUrl=isSrc?_SMD_SAFE_IMG_URL_RE:_SMD_SAFE_URL_RE;
-      if(isHref&&/^(file|workspace):\/\//i.test(String(value||''))){
+      if(isHref&&/^(file|workspace|session):\/\//i.test(String(value||''))){
         baseSetAttr(data,attr,_smdLinkHref(value));
+        if(/^session:\/\//i.test(String(value||''))){
+          const node=data&&data.nodes&&data.nodes[data.index];
+          if(node&&node.classList) node.classList.add('session-link');
+        }
         return;
       }
       if((isHref||isSrc)&&!safeUrl.test(String(value||''))){
@@ -1706,14 +1720,14 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
     source.addEventListener('approval',e=>{
       const d=JSON.parse(e.data);
       showApprovalForSession(activeSid, d, 1);
-      playNotificationSound();
+      playAttentionSound(_attentionSoundKey(activeSid,'approval',1));
       sendBrowserNotification('Approval required',d.description||'Tool approval needed');
     });
 
     source.addEventListener('clarify',e=>{
       const d=JSON.parse(e.data);
       showClarifyForSession(activeSid, d);
-      playNotificationSound();
+      playAttentionSound(_attentionSoundKey(activeSid,'clarify',1));
       sendBrowserNotification('Clarification needed',d.question||'Tool clarification needed');
     });
 
@@ -1807,6 +1821,11 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
 
     source.addEventListener('done',e=>{
       if(_streamFinalized) return;
+      // Set _streamFinalized IMMEDIATELY — before any fade delay. Without this,
+      // a stream_end event arriving during the fade window sees
+      // _streamFinalized=false, calls _restoreSettledSession(), and overwrites
+      // S.messages with stale server data (issue #3195).
+      _streamFinalized=true;
       _terminalStateReached=true;
       if(_persistTimer){clearTimeout(_persistTimer);_persistTimer=null;}
       const _doneData=JSON.parse(e.data);
@@ -3330,6 +3349,43 @@ function playNotificationSound(){
     osc.start(ctx.currentTime);osc.stop(ctx.currentTime+0.3);
     osc.onended=()=>ctx.close();
   }catch(e){console.warn('Notification sound failed:',e);}
+}
+
+
+function _attentionSoundKey(sid,kind,count){
+  const safeSid=String(sid||'');
+  const safeKind=String(kind||'attention');
+  const safeCount=Math.max(1,Number(count)||1);
+  return `${safeSid}:${safeKind}:${safeCount}`;
+}
+
+function playAttentionSound(key){
+  if(!window._soundEnabled) return;
+  const nowMs=Date.now();
+  if(window._lastAttentionSoundAt&&nowMs-window._lastAttentionSoundAt<900) return;
+  const dedupeKey=key?String(key):'';
+  if(dedupeKey){
+    const seen=window._attentionSoundSeenKeys instanceof Map?window._attentionSoundSeenKeys:new Map();
+    window._attentionSoundSeenKeys=seen;
+    for(const [seenKey,seenAt] of seen){
+      if(nowMs-Number(seenAt||0)>300000) seen.delete(seenKey);
+    }
+    if(seen.has(dedupeKey)) return;
+    seen.set(dedupeKey,nowMs);
+  }
+  window._lastAttentionSoundAt=nowMs;
+  try{
+    const ctx=new (window.AudioContext||window.webkitAudioContext)();
+    const osc=ctx.createOscillator();
+    const gain=ctx.createGain();
+    osc.connect(gain);gain.connect(ctx.destination);
+    osc.type='sine';osc.frequency.setValueAtTime(880,ctx.currentTime);
+    osc.frequency.setValueAtTime(660,ctx.currentTime+0.075);
+    gain.gain.setValueAtTime(0.24,ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01,ctx.currentTime+0.24);
+    osc.start(ctx.currentTime);osc.stop(ctx.currentTime+0.24);
+    osc.onended=()=>ctx.close();
+  }catch(e){console.warn('Attention sound failed:',e);}
 }
 
 function sendBrowserNotification(title,body){
