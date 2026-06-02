@@ -801,6 +801,14 @@ async function uploadToWorkspace(file, dir) {
     });
     if (data && data.error) {
       showToast(data.error, 5000, 'error');
+    } else if (data && (data.extract_error || (Array.isArray(data.files) && data.files.some(function(f){return f && f.extract_error;})))) {
+      // Archive was rejected (zip-slip / zip-bomb / corrupt / too-many-members):
+      // the file uploaded but extraction failed. Surface it as an error instead
+      // of a misleading "Uploaded" success toast.
+      var msg = data.extract_error
+        || (data.files.find(function(f){return f && f.extract_error;}) || {}).extract_error
+        || 'Archive extraction failed';
+      showToast(msg, 5000, 'error');
     } else {
       showToast(t('uploaded') || ('Uploaded ' + (data.filename || file.name)), 2000);
     }

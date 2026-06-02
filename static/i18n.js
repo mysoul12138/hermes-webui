@@ -1486,6 +1486,9 @@ const LOCALES = {
     checkpoint_diff_title: 'Changes in checkpoint',
     checkpoint_diff_no_changes: 'No differences found between this checkpoint and the current workspace.',
     checkpoint_diff_files_changed: (n) => `${n} file${n === 1 ? '' : 's'} changed`,
+    plugins_enable_toggle: 'Enable',
+    settings_desc_tts_engine: 'Choose speech engine. Edge TTS uses Microsoft neural voices via the server.',
+    settings_label_tts_engine: 'TTS Engine',
   },
 
   it: {
@@ -2813,6 +2816,9 @@ const LOCALES = {
     checkpoint_diff_title: 'Modifiche nel checkpoint',
     checkpoint_diff_no_changes: 'Nessuna differenza trovata tra questo checkpoint e il workspace attuale.',
     checkpoint_diff_files_changed: (n) => `${n} file modificat${n === 1 ? 'o' : 'i'}`,
+    plugins_enable_toggle: 'Abilita',
+    settings_desc_tts_engine: 'Scegli il motore vocale. Edge TTS utilizza le voci neurali Microsoft tramite il server.',
+    settings_label_tts_engine: 'Motore TTS',
   },
 
   ja: {
@@ -4304,6 +4310,9 @@ const LOCALES = {
     providers_refreshing: '更新中…',
     remove: '削除',
 
+    plugins_enable_toggle: '有効化',
+    settings_desc_tts_engine: '音声エンジンを選択してください。Edge TTSはサーバー経由でMicrosoftのニューラル音声を使用します。',
+    settings_label_tts_engine: 'TTSエンジン',
   },
 
   ru: {
@@ -5573,6 +5582,9 @@ const LOCALES = {
     settings_desc_api_redact: 'Self-hosted users can disable for transparency (not recommended for shared instances).',  // TODO: translate
     settings_label_api_redact: 'Redact sensitive data in API responses',  // TODO: translate
     subagent_children: 'Subagent sessions',  // TODO: translate
+    plugins_enable_toggle: 'Включить',
+    settings_desc_tts_engine: 'Выберите движок синтеза речи. Edge TTS использует нейронные голоса Microsoft через сервер.',
+    settings_label_tts_engine: 'Движок TTS',
   },
 
   es: {
@@ -6836,6 +6848,9 @@ const LOCALES = {
     voice_mode_toggle: 'Voice mode',  // TODO: translate
     voice_mode_toggle_active: 'Exit voice mode',  // TODO: translate
     subagent_children: 'Subagent sessions',  // TODO: translate
+    plugins_enable_toggle: 'Activar',
+    settings_desc_tts_engine: 'Elija el motor de voz. Edge TTS utiliza voces neuronales de Microsoft a través del servidor.',
+    settings_label_tts_engine: 'Motor TTS',
   },
 
   de: {
@@ -8103,6 +8118,9 @@ const LOCALES = {
     voice_mode_toggle: 'Voice mode',  // TODO: translate
     voice_mode_toggle_active: 'Exit voice mode',  // TODO: translate
     subagent_children: 'Subagent sessions',  // TODO: translate
+    plugins_enable_toggle: 'Aktivieren',
+    settings_desc_tts_engine: 'Sprach-Engine auswählen. Edge TTS verwendet Microsoft Neural Voices über den Server.',
+    settings_label_tts_engine: 'TTS-Engine',
   },
 
   zh: {
@@ -9512,6 +9530,9 @@ const LOCALES = {
     voice_mode_toggle: '语音模式',
     voice_mode_toggle_active: '退出语音模式',
     subagent_children: '子代理会话',
+    plugins_enable_toggle: '启用',
+    settings_desc_tts_engine: '选择语音引擎。Edge TTS 通过服务器使用微软神经语音。',
+    settings_label_tts_engine: 'TTS 引擎',
   },
 
   // Traditional Chinese (zh-Hant)
@@ -11995,6 +12016,9 @@ const LOCALES = {
     sign_out_failed: 'Falha ao sair: ',
     auth_disabled: 'Autenticação desativada — proteção por senha removida',
     disable_auth_confirm_title: 'Desativar proteção por senha',
+    plugins_enable_toggle: 'Ativar',
+    settings_desc_tts_engine: 'Escolha o mecanismo de fala. Edge TTS usa vozes neurais da Microsoft através do servidor.',
+    settings_label_tts_engine: 'Motor TTS',
   },
   ko: {
     offline_title: '연결이 끊겼습니다',
@@ -13311,6 +13335,9 @@ const LOCALES = {
     voice_mode_toggle: 'Voice mode',  // TODO: translate
     voice_mode_toggle_active: 'Exit voice mode',  // TODO: translate
     subagent_children: 'Subagent sessions',  // TODO: translate
+    plugins_enable_toggle: '활성화',
+    settings_desc_tts_engine: '음성 엔진을 선택하세요. Edge TTS는 서버를 통해 Microsoft 신경 음성을 사용합니다.',
+    settings_label_tts_engine: 'TTS 엔진',
   },
 
   fr: {
@@ -14567,6 +14594,9 @@ const LOCALES = {
     usage_total: 'Total de tokens',
     usage_unknown: 'inconnu',
     workspace_auto_create_folder: 'Créer le dossier s\'il n\'existe pas',
+    plugins_enable_toggle: 'Activer',
+    settings_desc_tts_engine: 'Choisissez le moteur de synthèse vocale. Edge TTS utilise les voix neuronales Microsoft via le serveur.',
+    settings_label_tts_engine: 'Moteur TTS',
   },
 
   tr: {
@@ -15890,6 +15920,9 @@ const LOCALES = {
   
   
   
+    plugins_enable_toggle: 'Etkinleştir',
+    settings_desc_tts_engine: 'Ses motorunu seçin. Edge TTS, sunucu üzerinden Microsoft sinirsel seslerini kullanır.',
+    settings_label_tts_engine: 'TTS Motoru',
   }
 };
 
