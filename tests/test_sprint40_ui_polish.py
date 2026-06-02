@@ -55,6 +55,7 @@ class TestActiveSessionTitleThemeColor(unittest.TestCase):
             if ".session-item.active .session-title" in line
             and ':not(.dark)' not in line
             and ':root[data-skin=' not in line
+            and ':root.dark[data-skin=' not in line
         ]
 
         self.assertTrue(

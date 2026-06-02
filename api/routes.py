@@ -5475,6 +5475,8 @@ def handle_post(handler, parsed) -> bool:
                 input_tokens=session.input_tokens,
                 output_tokens=session.output_tokens,
                 estimated_cost=session.estimated_cost,
+                cache_read_tokens=getattr(session, "cache_read_tokens", 0),
+                cache_write_tokens=getattr(session, "cache_write_tokens", 0),
                 # Per-session settings the user may have customized — carry them over
                 # so the duplicate behaves identically until further edits. Compression
                 # anchor + last_prompt_tokens are intentionally NOT carried — those
@@ -5483,6 +5485,23 @@ def handle_post(handler, parsed) -> bool:
                 enabled_toolsets=getattr(session, "enabled_toolsets", None),
                 context_length=getattr(session, "context_length", None),
                 threshold_tokens=getattr(session, "threshold_tokens", None),
+                truncation_watermark=getattr(session, "truncation_watermark", None),
+                # context_messages is the authoritative model-facing prefix — must be
+                # deepcopied so the duplicate has its own independent context that won't
+                # be mutated when the original session's context changes (#2914).
+                context_messages=copy.deepcopy(getattr(session, "context_messages", None) or []),
+                # Gateway routing — if the user customized routing for this session,
+                # the duplicate should behave identically.
+                gateway_routing=copy.deepcopy(getattr(session, "gateway_routing", None)),
+                gateway_routing_history=copy.deepcopy(getattr(session, "gateway_routing_history", None) or []),
+                # Preserve LLM-generated title flag so we don't regenerate title on duplicate.
+                llm_title_generated=getattr(session, "llm_title_generated", False),
+                # Composer draft — preserve per-session draft state.
+                composer_draft=copy.deepcopy(getattr(session, "composer_draft", None) or {}),
+                # Context engine state — preserve so the duplicate's context engine
+                # starts from the same point as the original.
+                context_engine=getattr(session, "context_engine", None),
+                context_engine_state=copy.deepcopy(getattr(session, "context_engine_state", None) or {}),
                 created_at=time.time(),
                 updated_at=time.time(),
             )
@@ -5758,18 +5777,28 @@ def handle_post(handler, parsed) -> bool:
         except KeyError:
             return bad(handler, "Session not found", 404)
         with _get_session_agent_lock(sid):
-            draft = getattr(s, "composer_draft", {}) or {}
+            current_draft = dict(getattr(s, "composer_draft", {}) or {})
+            next_draft = dict(current_draft)
             if text is not None:
-                draft["text"] = text
+                next_draft["text"] = text
             if files is not None:
-                draft["files"] = files
-            s.composer_draft = draft
-            # Draft persistence is not conversation activity. Touching updated_at
-            # here makes the active-session external-refresh poll force-reload the
-            # current chat every few seconds while the user is typing, and that
-            # delayed reload can restore an older draft over newer local input.
-            s.save(touch_updated_at=False, skip_index=True)
-        return j(handler, {"ok": True, "draft": s.composer_draft})
+                next_draft["files"] = files
+            unchanged = False
+            if next_draft == current_draft:
+                unchanged = True
+                saved_draft = current_draft
+            else:
+                s.composer_draft = next_draft
+                # Draft persistence is not conversation activity. Touching updated_at
+                # here makes the active-session external-refresh poll force-reload the
+                # current chat every few seconds while the user is typing, and that
+                # delayed reload can restore an older draft over newer local input.
+                s.save(touch_updated_at=False, skip_index=True)
+                saved_draft = s.composer_draft
+        payload = {"ok": True, "draft": saved_draft}
+        if unchanged:
+            payload["unchanged"] = True
+        return j(handler, payload)
 
     if parsed.path == "/api/session/update":
         try:
@@ -6029,9 +6058,22 @@ def handle_post(handler, parsed) -> bool:
         branch = Session(
             workspace=source.workspace,
             model=source.model,
+            model_provider=getattr(source, "model_provider", None),
             profile=getattr(source, "profile", None),
             title=branch_title,
             messages=forked_messages,
+            project_id=getattr(source, "project_id", None),
+            personality=getattr(source, "personality", None),
+            enabled_toolsets=getattr(source, "enabled_toolsets", None),
+            context_length=getattr(source, "context_length", None),
+            threshold_tokens=getattr(source, "threshold_tokens", None),
+            # context_messages — deep copy so the branch has independent context
+            context_messages=copy.deepcopy(getattr(source, "context_messages", None) or []),
+            # Gateway routing — inherit from source
+            gateway_routing=copy.deepcopy(getattr(source, "gateway_routing", None)),
+            # Context engine — inherit state so branch's context engine starts correctly
+            context_engine=getattr(source, "context_engine", None),
+            context_engine_state=copy.deepcopy(getattr(source, "context_engine_state", None) or {}),
             parent_session_id=source.session_id,
             session_source="fork",
         )
