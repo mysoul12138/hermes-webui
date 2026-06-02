@@ -1129,23 +1129,20 @@
               </label>
               <div style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_raw_audio">Record and send the original audio file to the agent instead of converting it to text first. The agent can then transcribe it or process the raw audio (emotion, background noise, custom STT). Like Telegram's voice message behavior.</div>
             </div>
-            <div class="settings-field" id="settingsTtsVoiceField">
-              <label id="settingsTtsVoiceLabel" for="settingsTtsVoice" data-i18n="settings_label_tts_voice">Voice</label>
-              <select id="settingsTtsVoice" data-tts-provider-control="browser" style="width:100%;padding:8px;background:var(--code-bg);color:var(--text);border:1px solid var(--border2);border-radius:6px">
+            <div class="settings-field">
+              <label for="settingsTtsEngine" data-i18n="settings_label_tts_engine">TTS Engine</label>
+              <select id="settingsTtsEngine" style="width:100%;padding:8px;background:var(--code-bg);color:var(--text);border:1px solid var(--border2);border-radius:6px">
+                <option value="browser">Browser speech synthesis</option>
+                <option value="edge">Edge TTS (server)</option>
+              </select>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_tts_engine">Choose speech engine. Edge TTS uses Microsoft neural voices via the server.</div>
+            </div>
+            <div class="settings-field">
+              <label for="settingsTtsVoice" data-i18n="settings_label_tts_voice">Voice</label>
+              <select id="settingsTtsVoice" style="width:100%;padding:8px;background:var(--code-bg);color:var(--text);border:1px solid var(--border2);border-radius:6px">
                 <option value="">Default system voice</option>
               </select>
-              <input id="settingsTtsEdgeVoice" data-tts-provider-control="edge" type="text" list="settingsTtsEdgeVoiceOptions" placeholder="en-US-AriaNeural" style="display:none;width:100%;padding:8px;background:var(--code-bg);color:var(--text);border:1px solid var(--border2);border-radius:6px">
-              <datalist id="settingsTtsEdgeVoiceOptions">
-                <option value="en-US-AriaNeural"></option>
-                <option value="en-US-JennyNeural"></option>
-                <option value="zh-CN-XiaoxiaoNeural"></option>
-                <option value="zh-CN-YunxiNeural"></option>
-                <option value="zh-HK-HiuGaaiNeural"></option>
-                <option value="zh-TW-HsiaoChenNeural"></option>
-                <option value="ja-JP-NanamiNeural"></option>
-                <option value="ko-KR-SunHiNeural"></option>
-              </datalist>
-              <div id="settingsTtsVoiceHelp" style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_tts_voice">Browser voice/language. Populated from your browser's available voices.</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px" data-i18n="settings_desc_tts_voice">Preferred voice. Populated from your browser's available voices.</div>
             </div>
             <div class="settings-field">
               <label for="settingsTtsRate" data-i18n="settings_label_tts_rate">Speech rate</label>
@@ -1509,7 +1506,6 @@
 <script src="static/i18n.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/icons.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/ui.js?v=__WEBUI_VERSION__" defer></script>
-<script src="static/tts-edge.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/workspace.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/terminal.js?v=__WEBUI_VERSION__" defer></script>
 <script src="static/sessions.js?v=__WEBUI_VERSION__" defer></script>

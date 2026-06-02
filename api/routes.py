@@ -2802,7 +2802,6 @@ from api.providers import (
 from api import provider_routes
 from api.provider_route_registry import register_provider_routes
 from api.route_registry import NO_ROUTE, RouteRegistry
-from api.tts_route_registry import register_tts_routes
 from api.weixin_route_registry import register_weixin_routes
 from api.onboarding import (
     apply_onboarding_setup,
@@ -2818,7 +2817,6 @@ from api.oauth import (
 
 _ROUTE_REGISTRY = RouteRegistry()
 register_provider_routes(_ROUTE_REGISTRY)
-register_tts_routes(_ROUTE_REGISTRY)
 register_weixin_routes(_ROUTE_REGISTRY)
 
 

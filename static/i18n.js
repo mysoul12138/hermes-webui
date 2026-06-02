@@ -942,7 +942,6 @@ const LOCALES = {
     // TTS (#499)
     tts_listen: 'Listen',
     tts_not_supported: 'Speech synthesis not supported in this browser.',
-    tts_edge_failed: 'Edge TTS playback failed.',
     settings_label_tts: 'Text-to-Speech for responses',
     settings_desc_tts: "Show a speaker button on each assistant message to read it aloud using your browser's speech synthesis.",
     settings_label_tts_auto_read: 'Auto-read responses aloud',
@@ -960,8 +959,6 @@ const LOCALES = {
     voice_raw_attached: 'Audio attached. Press Send or type more.',
     settings_label_tts_voice: 'Voice',
     settings_desc_tts_voice: "Browser voice/language. Populated from your browser's available voices.",
-    settings_label_tts_edge_voice: 'Edge voice',
-    settings_desc_tts_edge_voice: 'Optional Edge TTS voice name. Leave blank for en-US-AriaNeural.',
     settings_label_tts_rate: 'Speech rate',
     settings_label_tts_pitch: 'Speech pitch',
     settings_label_notifications: 'Browser notifications',
@@ -2320,7 +2317,6 @@ const LOCALES = {
     settings_label_tts_auto_read: 'Leggi automaticamente le risposte ad alta voce',
     settings_desc_tts_auto_read: 'Leggi automaticamente ogni nuova risposta dell\'assistente quando termina. In pausa quando inizi a scrivere.',
     // Composer voice-mode pref (#1488)
-    tts_edge_failed: 'Edge TTS playback failed.',  // TODO: translate
     settings_label_tts_provider: 'TTS provider',  // TODO: translate
     settings_desc_tts_provider: 'Choose browser Web Speech or optional server-side Edge TTS MP3 playback.',  // TODO: translate
     settings_tts_provider_browser: 'Browser Web Speech',  // TODO: translate
@@ -2333,8 +2329,6 @@ const LOCALES = {
     voice_raw_attached: 'Audio allegato. Premi Invia o aggiungi testo.',
     settings_label_tts_voice: 'Voce',
     settings_desc_tts_voice: 'Voce preferita. Popolata dalle voci disponibili nel browser.',
-    settings_label_tts_edge_voice: 'Edge voice',  // TODO: translate
-    settings_desc_tts_edge_voice: 'Optional Edge TTS voice name. Leave blank for en-US-AriaNeural.',  // TODO: translate
     settings_label_tts_rate: 'Velocità voce',
     settings_label_tts_pitch: 'Tono voce',
     settings_label_notifications: 'Notifiche browser',
@@ -3655,7 +3649,6 @@ const LOCALES = {
     settings_label_tts_auto_read: '応答を自動で読み上げ',
     settings_desc_tts_auto_read: '新しいアシスタント応答が完了するたびに自動で読み上げます。入力中は一時停止します。',
     // Composer voice-mode pref (#1488)
-    tts_edge_failed: 'Edge TTS playback failed.',  // TODO: translate
     settings_label_tts_provider: 'TTS provider',  // TODO: translate
     settings_desc_tts_provider: 'Choose browser Web Speech or optional server-side Edge TTS MP3 playback.',  // TODO: translate
     settings_tts_provider_browser: 'Browser Web Speech',  // TODO: translate
@@ -3668,8 +3661,6 @@ const LOCALES = {
     voice_raw_attached: '音声を添付しました。送信するかテキストを追加してください。',
     settings_label_tts_voice: '声',
     settings_desc_tts_voice: '優先する声。ブラウザで利用可能な声から選択されます。',
-    settings_label_tts_edge_voice: 'Edge voice',  // TODO: translate
-    settings_desc_tts_edge_voice: 'Optional Edge TTS voice name. Leave blank for en-US-AriaNeural.',  // TODO: translate
     settings_label_tts_rate: '読み上げ速度',
     settings_label_tts_pitch: '読み上げピッチ',
     settings_label_notifications: 'ブラウザ通知',
@@ -5512,7 +5503,6 @@ const LOCALES = {
     settings_label_tts_auto_read: 'Авто-чтение ответов',
     settings_desc_tts_auto_read: 'Автоматически озвучивать ответы ассистента',
     // Composer voice-mode pref (#1488)
-    tts_edge_failed: 'Edge TTS playback failed.',  // TODO: translate
     settings_label_tts_provider: 'TTS provider',  // TODO: translate
     settings_desc_tts_provider: 'Choose browser Web Speech or optional server-side Edge TTS MP3 playback.',  // TODO: translate
     settings_tts_provider_browser: 'Browser Web Speech',  // TODO: translate
@@ -5525,8 +5515,6 @@ const LOCALES = {
     voice_raw_attached: 'Аудио прикреплено. Нажмите Отправить или добавьте текст.',
     settings_label_tts_voice: 'Голос',
     settings_desc_tts_voice: 'Выберите голос для синтеза речи',
-    settings_label_tts_edge_voice: 'Edge voice',  // TODO: translate
-    settings_desc_tts_edge_voice: 'Optional Edge TTS voice name. Leave blank for en-US-AriaNeural.',  // TODO: translate
     settings_label_tts_rate: 'Скорость речи',
     settings_label_tts_pitch: 'Тон речи',
 
@@ -6767,7 +6755,6 @@ const LOCALES = {
     settings_label_tts_auto_read: 'Leer respuestas automáticamente',
     settings_desc_tts_auto_read: 'Leer en voz alta las respuestas del asistente automáticamente',
     // Composer voice-mode pref (#1488)
-    tts_edge_failed: 'Edge TTS playback failed.',  // TODO: translate
     settings_label_tts_provider: 'TTS provider',  // TODO: translate
     settings_desc_tts_provider: 'Choose browser Web Speech or optional server-side Edge TTS MP3 playback.',  // TODO: translate
     settings_tts_provider_browser: 'Browser Web Speech',  // TODO: translate
@@ -6780,8 +6767,6 @@ const LOCALES = {
     voice_raw_attached: 'Audio attached. Press Send or type more.',  // TODO: translate
     settings_label_tts_voice: 'Voz',
     settings_desc_tts_voice: 'Seleccionar voz para síntesis de voz',
-    settings_label_tts_edge_voice: 'Edge voice',  // TODO: translate
-    settings_desc_tts_edge_voice: 'Optional Edge TTS voice name. Leave blank for en-US-AriaNeural.',  // TODO: translate
     settings_label_tts_rate: 'Velocidad de voz',
     settings_label_tts_pitch: 'Tono de voz',
     checkpoint_date: 'Date',  // TODO: translate
@@ -8036,7 +8021,6 @@ const LOCALES = {
     settings_label_tts_auto_read: 'Antworten automatisch vorlesen',
     settings_desc_tts_auto_read: 'Assistenten-Antworten automatisch vorlesen',
     // Composer voice-mode pref (#1488)
-    tts_edge_failed: 'Edge TTS playback failed.',  // TODO: translate
     settings_label_tts_provider: 'TTS provider',  // TODO: translate
     settings_desc_tts_provider: 'Choose browser Web Speech or optional server-side Edge TTS MP3 playback.',  // TODO: translate
     settings_tts_provider_browser: 'Browser Web Speech',  // TODO: translate
@@ -8049,8 +8033,6 @@ const LOCALES = {
     voice_raw_attached: 'Audio attached. Press Send or type more.',  // TODO: translate
     settings_label_tts_voice: 'Stimme',
     settings_desc_tts_voice: 'Stimme für Sprachsynthese auswählen',
-    settings_label_tts_edge_voice: 'Edge voice',  // TODO: translate
-    settings_desc_tts_edge_voice: 'Optional Edge TTS voice name. Leave blank for en-US-AriaNeural.',  // TODO: translate
     settings_label_tts_rate: 'Sprechgeschwindigkeit',
     settings_label_tts_pitch: 'Tonhöhe',
 
@@ -9444,7 +9426,6 @@ const LOCALES = {
     // TTS (#499)
     tts_listen: '收听',
     tts_not_supported: '语音合成不可用',
-    tts_edge_failed: 'Edge TTS 播放失败。',
     settings_label_tts: '回复语音合成',
     settings_desc_tts: '在助手消息上显示扬声器按钮',
     settings_label_tts_auto_read: '自动朗读回复',
@@ -9462,8 +9443,6 @@ const LOCALES = {
     voice_raw_attached: '音频已附加。按发送或输入更多内容。',
     settings_label_tts_voice: '语音',
     settings_desc_tts_voice: '选择语音合成声音',
-    settings_label_tts_edge_voice: 'Edge 语音',
-    settings_desc_tts_edge_voice: '可选的 Edge TTS 语音名称。留空使用 en-US-AriaNeural。',
     settings_label_tts_rate: '语速',
     settings_label_tts_pitch: '音调',
     checkpoint_date: '日期',
@@ -10788,7 +10767,6 @@ const LOCALES = {
     settings_label_tts_auto_read: '自動朗讀回覆',
     settings_desc_tts_auto_read: '自動朗讀助手回覆',
     // Composer voice-mode pref (#1488)
-    tts_edge_failed: 'Edge TTS playback failed.',  // TODO: translate
     settings_label_tts_provider: 'TTS provider',  // TODO: translate
     settings_desc_tts_provider: 'Choose browser Web Speech or optional server-side Edge TTS MP3 playback.',  // TODO: translate
     settings_tts_provider_browser: 'Browser Web Speech',  // TODO: translate
@@ -10801,8 +10779,6 @@ const LOCALES = {
     voice_raw_attached: 'Audio attached. Press Send or type more.',  // TODO: translate
     settings_label_tts_voice: '語音',
     settings_desc_tts_voice: '選擇語音合成聲音',
-    settings_label_tts_edge_voice: 'Edge voice',  // TODO: translate
-    settings_desc_tts_edge_voice: 'Optional Edge TTS voice name. Leave blank for en-US-AriaNeural.',  // TODO: translate
     settings_label_tts_rate: '語速',
     settings_label_tts_pitch: '音調',
 
@@ -11938,7 +11914,6 @@ const LOCALES = {
     settings_label_tts_auto_read: 'Ler respostas automaticamente',
     settings_desc_tts_auto_read: 'Ler automaticamente as respostas do assistente',
     // Composer voice-mode pref (#1488)
-    tts_edge_failed: 'Edge TTS playback failed.',  // TODO: translate
     settings_label_tts_provider: 'TTS provider',  // TODO: translate
     settings_desc_tts_provider: 'Choose browser Web Speech or optional server-side Edge TTS MP3 playback.',  // TODO: translate
     settings_tts_provider_browser: 'Browser Web Speech',  // TODO: translate
@@ -11951,8 +11926,6 @@ const LOCALES = {
     voice_raw_attached: 'Audio attached. Press Send or type more.',  // TODO: translate
     settings_label_tts_voice: 'Voz',
     settings_desc_tts_voice: 'Selecionar voz para síntese de voz',
-    settings_label_tts_edge_voice: 'Edge voice',  // TODO: translate
-    settings_desc_tts_edge_voice: 'Optional Edge TTS voice name. Leave blank for en-US-AriaNeural.',  // TODO: translate
     settings_label_tts_rate: 'Velocidade da fala',
     settings_label_tts_pitch: 'Tom da fala',
     checkpoint_date: 'Date',  // TODO: translate
@@ -13254,7 +13227,6 @@ const LOCALES = {
     settings_label_tts_auto_read: '답변 자동 읽기',
     settings_desc_tts_auto_read: '도움말 답변을 자동으로 읽어줌',
     // Composer voice-mode pref (#1488)
-    tts_edge_failed: 'Edge TTS playback failed.',  // TODO: translate
     settings_label_tts_provider: 'TTS provider',  // TODO: translate
     settings_desc_tts_provider: 'Choose browser Web Speech or optional server-side Edge TTS MP3 playback.',  // TODO: translate
     settings_tts_provider_browser: 'Browser Web Speech',  // TODO: translate
@@ -13267,8 +13239,6 @@ const LOCALES = {
     voice_raw_attached: 'Audio attached. Press Send or type more.',  // TODO: translate
     settings_label_tts_voice: '음성',
     settings_desc_tts_voice: '음성 합성 음성 선택',
-    settings_label_tts_edge_voice: 'Edge voice',  // TODO: translate
-    settings_desc_tts_edge_voice: 'Optional Edge TTS voice name. Leave blank for en-US-AriaNeural.',  // TODO: translate
     settings_label_tts_rate: '말 속도',
     settings_label_tts_pitch: '말 톤',
     checkpoint_date: 'Date',  // TODO: translate
@@ -14029,7 +13999,6 @@ const LOCALES = {
     settings_desc_tts: 'Affichez un bouton haut-parleur sur chaque message de l\'assistant pour le lire à haute voix à l\'aide de la synthèse vocale de votre navigateur.',
     settings_label_tts_auto_read: 'Lecture automatique des réponses à haute voix',
     settings_desc_tts_auto_read: 'Prononcez automatiquement chaque nouvelle réponse de l\'assistant lorsqu\'elle est terminée. S\'arrête lorsque vous commencez à taper.',
-    tts_edge_failed: 'Edge TTS playback failed.',  // TODO: translate
     settings_label_tts_provider: 'TTS provider',  // TODO: translate
     settings_desc_tts_provider: 'Choose browser Web Speech or optional server-side Edge TTS MP3 playback.',  // TODO: translate
     settings_tts_provider_browser: 'Browser Web Speech',  // TODO: translate
@@ -14042,8 +14011,6 @@ const LOCALES = {
     voice_raw_attached: 'Audio attaché. Appuyez sur Envoyer ou ajoutez du texte.',
     settings_label_tts_voice: 'Voix',
     settings_desc_tts_voice: 'Voix préférée. Rempli à partir des voix disponibles dans votre navigateur.',
-    settings_label_tts_edge_voice: 'Edge voice',  // TODO: translate
-    settings_desc_tts_edge_voice: 'Optional Edge TTS voice name. Leave blank for en-US-AriaNeural.',  // TODO: translate
     settings_label_tts_rate: 'Taux de parole',
     settings_label_tts_pitch: 'Emplacement du discours',
     settings_label_notifications: 'Notifications du navigateur',
@@ -15848,7 +15815,6 @@ const LOCALES = {
     settings_label_tts_auto_read: 'Yanıtları sesli olarak otomatik oku',
     settings_desc_tts_auto_read: 'Tamamlandığında her yeni asistanın yanıtını otomatik olarak söyleyin. Yazmaya başladığınızda duraklar.',
     // Composer voice-mode pref (#1488)
-    tts_edge_failed: 'Edge TTS playback failed.',  // TODO: translate
     settings_label_tts_provider: 'TTS provider',  // TODO: translate
     settings_desc_tts_provider: 'Choose browser Web Speech or optional server-side Edge TTS MP3 playback.',  // TODO: translate
     settings_tts_provider_browser: 'Browser Web Speech',  // TODO: translate
@@ -15861,8 +15827,6 @@ const LOCALES = {
     voice_raw_attached: 'Ses eklendi. Gönder\'e basın veya metin ekleyin.',
     settings_label_tts_voice: 'Ses',
     settings_desc_tts_voice: 'Ses sentezi sesini seçin',
-    settings_label_tts_edge_voice: 'Edge voice',  // TODO: translate
-    settings_desc_tts_edge_voice: 'Optional Edge TTS voice name. Leave blank for en-US-AriaNeural.',  // TODO: translate
     settings_label_tts_rate: 'Konuşma hızı',
     settings_label_tts_pitch: 'Konuşma perdesi',
     checkpoint_date: 'Tarih',

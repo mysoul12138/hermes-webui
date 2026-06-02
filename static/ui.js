@@ -4382,23 +4382,6 @@ let _ttsCurrentUtterance=null;
 let _playingEdgeAudio=null;
 
 function speakMessage(btn){
-  const edgeSelected=window.HermesEdgeTTS&&window.HermesEdgeTTS.isSelected&&window.HermesEdgeTTS.isSelected();
-  if(edgeSelected){
-    if(btn&&btn.dataset.speaking==='1'){
-      stopTTS();
-      return;
-    }
-    const row=btn?btn.closest('[data-raw-text]'):null;
-    const text=row?row.dataset.rawText:'';
-    const clean=_stripForTTS(text);
-    if(clean) window.HermesEdgeTTS.speakText(clean,btn);
-    return;
-  }
-  if(!('speechSynthesis' in window)){
-    showToast(t('tts_not_supported')||'Speech synthesis not supported in this browser.');
-    return;
-  }
-  // If already speaking this message, stop
   if(btn&&btn.dataset.speaking==='1'){
     stopTTS();
     return;
@@ -4497,7 +4480,6 @@ function stopTTS(){
   if('speechSynthesis' in window){
     speechSynthesis.cancel();
   }
-  if(window.HermesEdgeTTS&&window.HermesEdgeTTS.stop) window.HermesEdgeTTS.stop();
   // Stop Edge TTS audio
   if(_playingEdgeAudio){
     try{ _playingEdgeAudio.pause(); _playingEdgeAudio.currentTime=0; }catch(_){}
@@ -4523,10 +4505,6 @@ function autoReadLastAssistant(){
   const clean=_stripForTTS(text);
   if(!clean) return;
 
-  if(window.HermesEdgeTTS&&window.HermesEdgeTTS.isSelected&&window.HermesEdgeTTS.isSelected()){
-    window.HermesEdgeTTS.speakText(clean,null);
-    return;
-  }
   if(engine==='edge'){
     _playEdgeTts(clean, null);
     return;

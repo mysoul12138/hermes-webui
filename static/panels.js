@@ -6300,31 +6300,7 @@ async function loadSettingsPanel(){
     if(ttsEnabledCb){ttsEnabledCb.checked=localStorage.getItem('hermes-tts-enabled')==='true';ttsEnabledCb.onchange=function(){localStorage.setItem('hermes-tts-enabled',this.checked?'true':'false');_applyTtsEnabled(this.checked);};}
     const ttsAutoReadCb=$('settingsTtsAutoRead');
     if(ttsAutoReadCb){ttsAutoReadCb.checked=localStorage.getItem('hermes-tts-auto-read')==='true';ttsAutoReadCb.onchange=function(){localStorage.setItem('hermes-tts-auto-read',this.checked?'true':'false');};}
-    const ttsProviderSel=$('settingsTtsProvider');
     const ttsVoiceSel=$('settingsTtsVoice');
-    const ttsVoiceLabel=$('settingsTtsVoiceLabel');
-    const ttsEdgeVoiceInput=$('settingsTtsEdgeVoice');
-    const ttsVoiceHelp=$('settingsTtsVoiceHelp');
-    const applyTtsProviderUi=()=>{
-      const provider=ttsProviderSel&&ttsProviderSel.value==='edge'?'edge':'browser';
-      if(ttsVoiceSel) ttsVoiceSel.style.display=provider==='edge'?'none':'block';
-      if(ttsEdgeVoiceInput) ttsEdgeVoiceInput.style.display=provider==='edge'?'block':'none';
-      if(ttsVoiceLabel){
-        const labelKey=provider==='edge'?'settings_label_tts_edge_voice':'settings_label_tts_voice';
-        ttsVoiceLabel.setAttribute('for',provider==='edge'?'settingsTtsEdgeVoice':'settingsTtsVoice');
-        ttsVoiceLabel.setAttribute('data-i18n',labelKey);
-        ttsVoiceLabel.textContent=typeof t==='function'?t(labelKey):ttsVoiceLabel.textContent;
-      }
-      if(ttsVoiceHelp){
-        ttsVoiceHelp.setAttribute('data-i18n',provider==='edge'?'settings_desc_tts_edge_voice':'settings_desc_tts_voice');
-        ttsVoiceHelp.textContent=typeof t==='function'?t(provider==='edge'?'settings_desc_tts_edge_voice':'settings_desc_tts_voice'):ttsVoiceHelp.textContent;
-      }
-    };
-    if(ttsProviderSel){
-      const savedProvider=localStorage.getItem('hermes-tts-provider')||'browser';
-      ttsProviderSel.value=savedProvider==='edge'?'edge':'browser';
-      ttsProviderSel.onchange=function(){localStorage.setItem('hermes-tts-provider',this.value==='edge'?'edge':'browser');applyTtsProviderUi();stopTTS();};
-    }
     // Voice-mode button visibility (#1488). localStorage-only; no server round-trip.
     // Toggling re-applies immediately via the boot.js helper so the user sees
     // the audio-waveform button appear/disappear without a reload.
@@ -6376,11 +6352,6 @@ async function loadSettingsPanel(){
       },{once:false});
       ttsVoiceSel.onchange=function(){localStorage.setItem('hermes-tts-voice',this.value);};
     }
-    if(ttsEdgeVoiceInput){
-      ttsEdgeVoiceInput.value=localStorage.getItem('hermes-tts-edge-voice')||'';
-      ttsEdgeVoiceInput.oninput=function(){localStorage.setItem('hermes-tts-edge-voice',this.value.trim());};
-    }
-    applyTtsProviderUi();
     // TTS rate/pitch sliders
     const ttsRateSlider=$('settingsTtsRate');
     const ttsRateValue=$('settingsTtsRateValue');
