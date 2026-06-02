@@ -268,12 +268,42 @@ function collectSessionArtifacts(){
     if(!path || seen.has(path)) return;
     seen.add(path); items.push({path, source});
   };
+  // Source 1: session-level tool call summaries (may be empty when messages
+  // carry their own tool metadata — see _syncToolCallsForLoadedMessages).
   for(const tc of (S.toolCalls || [])){
     for(const a of _artifactCandidatesFromToolCall(tc)) push(a.path, a.kind || tc.name || 'tool');
   }
+  // Source 2 & 3: message-level data — both text-mined diffs and structured
+  // tool_calls / tool_use content blocks that survive the S.toolCalls clear.
   for(const msg of (S.messages || [])){
-    const text = msg && (msg.content || msg.text || msg.message || '');
-    for(const a of _artifactCandidatesFromText(text)) push(a.path, a.kind);
+    if(!msg) continue;
+    const text = msg.content || msg.text || msg.message || '';
+    // Text-mined diff/patch fences (existing path).
+    if(typeof text === 'string'){
+      for(const a of _artifactCandidatesFromText(text)) push(a.path, a.kind);
+    }
+    // Structured tool_calls array (OpenAI format: {function:{name,arguments}}).
+    if(Array.isArray(msg.tool_calls)){
+      for(const tc of msg.tool_calls){
+        if(!tc || typeof tc !== 'object') continue;
+        const fn = (tc.function && typeof tc.function === 'object') ? tc.function : tc;
+        const name = fn.name || tc.name || '';
+        let args = fn.arguments || tc.arguments || tc.args || tc.input || {};
+        if(typeof args === 'string'){ try{ args = JSON.parse(args); }catch(_){} }
+        const fakeTc = {name, args, result: tc.result || tc.output || ''};
+        for(const a of _artifactCandidatesFromToolCall(fakeTc)) push(a.path, a.kind || name || 'tool');
+      }
+    }
+    // Structured content array with tool_use blocks (Anthropic format).
+    if(Array.isArray(msg.content)){
+      for(const block of msg.content){
+        if(!block || block.type !== 'tool_use') continue;
+        let inp = block.input || {};
+        if(typeof inp === 'string'){ try{ inp = JSON.parse(inp); }catch(_){} }
+        const fakeTc = {name: block.name || '', args: inp, result: block.result || ''};
+        for(const a of _artifactCandidatesFromToolCall(fakeTc)) push(a.path, a.kind || block.name || 'tool');
+      }
+    }
   }
   return items.slice(0, 50);
 }
@@ -292,7 +322,14 @@ function renderSessionArtifacts(){
     root.innerHTML = '<div class="workspace-artifact-empty">No artifacts detected yet. Files created or edited during this session will appear here.</div>';
     return;
   }
-  root.innerHTML = items.map(item => `<button type="button" class="workspace-artifact-item" data-artifact-path="${esc(item.path)}" onclick="openArtifactPath(this.dataset.artifactPath)"><div class="workspace-artifact-path">${esc(item.path)}</div><div class="workspace-artifact-meta">${esc(item.source || 'session')}</div></button>`).join('');
+  // Strip workspace prefix for display so long absolute paths don't clutter the list.
+  const ws = S.session && S.session.workspace;
+  const normWs = ws ? ws.replace(/\/+$/,'') + '/' : '';
+  const displayPath = (p) => {
+    if(normWs && p.startsWith(normWs)) return p.slice(normWs.length);
+    return p;
+  };
+  root.innerHTML = items.map(item => `<button type="button" class="workspace-artifact-item" data-artifact-path="${esc(item.path)}" onclick="openArtifactPath(this.dataset.artifactPath)"><div class="workspace-artifact-path">${esc(displayPath(item.path))}</div><div class="workspace-artifact-meta">${esc(item.source || 'session')}</div></button>`).join('');
 }
 
 async function _workspacePathExists(path){
@@ -308,7 +345,15 @@ async function _workspacePathExists(path){
 async function openArtifactPath(path){
   if(!path) return;
   switchWorkspacePanelTab('files');
-  const rel = path.replace(/^~\//,'').replace(/^\.\//,'');
+  let rel = path.replace(/^~\//,'').replace(/^\.\/+/,'');
+  // Strip workspace prefix so /api/list receives a workspace-relative path.
+  const ws = S.session && S.session.workspace;
+  if(ws){
+    const normWs = ws.replace(/\/+$/,'') + '/';
+    if(rel.startsWith(normWs)) rel = rel.slice(normWs.length);
+    else if(rel === ws.replace(/\/+$/,'')) rel = '.';
+  }
+  if(!rel) rel = '.';
   try{
     if(!(await _workspacePathExists(rel))){
       setStatus(t('file_open_failed'));
@@ -647,8 +692,17 @@ async function openFile(path, opts={}){
       if(lang) codeEl.className='language-'+lang;
       const pre=$('previewCode');
       pre.textContent='';
+      // Prism.highlightElement() propagates the language-* class onto the
+      // parent <pre>, so a previously-previewed code file leaves e.g.
+      // "language-css" on #previewCode. A subsequent plain-text file builds a
+      // class-less <code>, and Prism walks up to that stale ancestor class and
+      // mis-highlights prose. Strip any inherited language-* token from the
+      // <pre> before each render so highlighting never leaks across files.
+      pre.className=pre.className.replace(/\blanguage-\S+/g,'').replace(/\s+/g,' ').trim();
       pre.appendChild(codeEl);
-      if(typeof Prism!=='undefined'&&typeof Prism.highlightElement==='function'){
+      // Only invoke Prism when we actually assigned a language; otherwise the
+      // class-less <code> would inherit any ancestor language-* class.
+      if(lang&&typeof Prism!=='undefined'&&typeof Prism.highlightElement==='function'){
         Prism.highlightElement(codeEl);
       }
     }catch(e){
@@ -713,4 +767,76 @@ function openInBrowser(){
   if(!_previewCurrentPath||!S.session) return;
   const url=`api/file/raw?session_id=${encodeURIComponent(S.session.session_id)}&path=${encodeURIComponent(_previewCurrentPath)}&inline=1`;
   window.open(url,'_blank','noopener');
+}
+
+// ── Workspace upload ──────────────────────────────────────────────────
+function triggerWorkspaceUpload() {
+  const input = $('workspaceFileInput');
+  if (!input) return;
+  input.value = '';
+  input.onchange = async () => {
+    const files = input.files;
+    if (!files || !files.length) return;
+    for (const file of files) {
+      await uploadToWorkspace(file, S.currentDir || '.');
+    }
+    if (S.session) loadDir(S.currentDir);
+  };
+  input.click();
+}
+
+async function uploadToWorkspace(file, dir) {
+  if (!S.session) return;
+  const formData = new FormData();
+  formData.append('session_id', S.session.session_id);
+  formData.append('path', dir || '.');
+  formData.append('file', file, file.name);
+  try {
+    showToast(t('uploading') || 'Uploading\u2026', 2000);
+    const data = await api('/api/workspace/upload', {
+      method: 'POST',
+      body: formData,
+      headers: {},
+      timeoutMs: 120000,
+    });
+    if (data && data.error) {
+      showToast(data.error, 5000, 'error');
+    } else {
+      showToast(t('uploaded') || ('Uploaded ' + (data.filename || file.name)), 2000);
+    }
+  } catch (e) {
+    showToast(t('upload_failed') || ('Upload failed: ' + e.message), 5000, 'error');
+  }
+}
+
+// Drag-and-drop files onto workspace file tree
+if (typeof document !== 'undefined') {
+  const _wsUploadInit = () => {
+    const tree = $('fileTree');
+    if (!tree) return;
+    tree.addEventListener('dragover', (e) => {
+      if (e.dataTransfer && e.dataTransfer.types && e.dataTransfer.types.includes('Files')) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        tree.classList.add('drag-over-upload');
+      }
+    });
+    tree.addEventListener('dragleave', () => {
+      tree.classList.remove('drag-over-upload');
+    });
+    tree.addEventListener('drop', async (e) => {
+      tree.classList.remove('drag-over-upload');
+      if (!e.dataTransfer || !e.dataTransfer.types || !e.dataTransfer.types.includes('Files')) return;
+      e.preventDefault();
+      for (const file of e.dataTransfer.files) {
+        await uploadToWorkspace(file, S.currentDir || '.');
+      }
+      if (S.session) loadDir(S.currentDir);
+    });
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _wsUploadInit, {once: true});
+  } else {
+    _wsUploadInit();
+  }
 }
