@@ -60,8 +60,8 @@ def handle_sessions_endpoint(handler, parsed, j, bad):
     """
     from api.request_diagnostics import RequestDiagnostics
     from api.helpers import _redact_text
-    from api.models import all_sessions, get_cli_sessions
-    from api.agent_sessions import is_cli_session_row_visible
+    from api.models import all_sessions, get_cli_sessions, agent_session_row_exists, prune_session_from_index
+    from api.agent_sessions import is_cli_session_row_visible, is_cli_session_row
     from api.config import load_settings
     from api.routes import (
         _session_attention_summary,
@@ -97,6 +97,24 @@ def handle_sessions_endpoint(handler, parsed, j, bad):
             cli = get_cli_sessions()
             diag.stage("merge_cli_sessions")
             cli_by_id = {s["session_id"]: s for s in cli}
+            # #3238: reconcile orphaned imported-CLI sidecars
+            _kept_after_orphan_prune = []
+            for s in webui_sessions:
+                _sid = s.get("session_id")
+                if (
+                    _sid
+                    and is_cli_session_row(s)
+                    and not _session_source_is_webui(s)
+                    and _sid not in cli_by_id
+                    and not agent_session_row_exists(_sid, profile=s.get("profile"))
+                ):
+                    try:
+                        prune_session_from_index(_sid)
+                    except Exception:
+                        logger.debug("Failed to prune orphaned CLI sidecar %s", _sid, exc_info=True)
+                    continue
+                _kept_after_orphan_prune.append(s)
+            webui_sessions = _kept_after_orphan_prune
             for s in webui_sessions:
                 meta = cli_by_id.get(s.get("session_id"))
                 if not meta:
