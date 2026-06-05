@@ -3962,9 +3962,16 @@ def _session_message_content_key(msg: dict):
 def _session_message_visible_key(msg: dict):
     if not isinstance(msg, dict):
         return ("non_dict", repr(msg))
+    # Include tool_calls so assistant messages that invoke different tools
+    # (but share identical empty content) are not collapsed by sidecar
+    # prefix matching.  Without this, all tool-calling messages map to
+    # ("assistant", "") and the merge treats state.db rows as replays.
+    _tc = msg.get("tool_calls")
+    _tc_key = json.dumps(_tc, sort_keys=True, default=str) if _tc else ""
     return (
         str(msg.get("role") or ""),
         _normalized_session_message_content(msg),
+        _tc_key,
     )
 
 
