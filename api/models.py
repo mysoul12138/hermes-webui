@@ -3899,6 +3899,14 @@ def _session_message_merge_key(msg: dict):
     message_identity = msg.get("id") or msg.get("message_id")
     if message_identity:
         return ("message_id", str(message_identity))
+    # Include tool_calls so assistant messages that invoke different tools
+    # (but share identical empty content and same-second timestamp) are not
+    # collapsed by the merge-key guard at line ~4216.  Without this,
+    # all tool-calling messages map to the same legacy key and the
+    # timestamp<=max_sidecar_timestamp blanket-skip at line ~4218 drops
+    # every state.db tool-call after the first one registered by the sidecar.
+    _tc = msg.get("tool_calls")
+    _tc_key = json.dumps(_tc, sort_keys=True, default=str) if _tc else ""
     return (
         "legacy",
         str(msg.get("role") or ""),
@@ -3906,6 +3914,7 @@ def _session_message_merge_key(msg: dict):
         _normalized_message_timestamp_for_key(msg.get("timestamp")),
         str(msg.get("tool_call_id") or ""),
         str(msg.get("tool_name") or msg.get("name") or ""),
+        _tc_key,
     )
 
 
