@@ -3922,6 +3922,11 @@ def _session_message_dedup_key(msg: dict):
     message_identity = msg.get("id") or msg.get("message_id")
     if message_identity:
         return ("message_id", str(message_identity))
+    # Include tool_calls in the key so assistant messages that carry
+    # different tool invocations (but identical empty content/timestamp)
+    # are never collapsed into one.  (#3346 regression)
+    _tc = msg.get("tool_calls")
+    _tc_key = json.dumps(_tc, sort_keys=True, default=str) if _tc else ""
     return (
         "legacy",
         str(msg.get("role") or ""),
@@ -3929,6 +3934,7 @@ def _session_message_dedup_key(msg: dict):
         str(msg.get("timestamp") or ""),
         str(msg.get("tool_call_id") or ""),
         str(msg.get("tool_name") or msg.get("name") or ""),
+        _tc_key,
     )
 
 
