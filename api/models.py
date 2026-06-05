@@ -3980,8 +3980,9 @@ def _build_visible_duplicate_lookup(visible_keys: set[tuple]) -> dict:
     loose_by_key = {}
     for key in visible_keys:
         try:
-            role, content = key
-        except (TypeError, ValueError):
+            role = key[0]
+            content = key[1]
+        except (TypeError, IndexError):
             continue
         if not content:
             continue
@@ -3993,24 +3994,27 @@ def _build_visible_duplicate_lookup(visible_keys: set[tuple]) -> dict:
 def _matching_visible_duplicate(visible_key: tuple, visible_keys: set[tuple], lookup: dict | None = None):
     if visible_key in visible_keys:
         return visible_key
-    role, content = visible_key
+    role = visible_key[0]
+    content = visible_key[1] if len(visible_key) > 1 else ""
     if not content:
         return None
     if lookup is None:
         lookup = _build_visible_duplicate_lookup(visible_keys)
     loose_content = None
-    for existing_role, existing_content in lookup.get("by_role", {}).get(role, []):
+    for existing_key in lookup.get("by_role", {}).get(role, []):
+        existing_role = existing_key[0]
+        existing_content = existing_key[1] if len(existing_key) > 1 else ""
         if role != existing_role or not existing_content:
             continue
         if content in existing_content or existing_content in content:
-            return (existing_role, existing_content)
+            return existing_key
         if loose_content is None:
             loose_content = _loose_session_message_content(content)
-        loose_existing = lookup.get("loose_by_key", {}).get((existing_role, existing_content), "")
+        loose_existing = lookup.get("loose_by_key", {}).get(existing_key, "")
         if loose_content and loose_existing and (
             loose_content in loose_existing or loose_existing in loose_content
         ):
-            return (existing_role, existing_content)
+            return existing_key
     return None
 
 
