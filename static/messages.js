@@ -1975,6 +1975,7 @@ function attachLiveStream(activeSid, streamId, uploaded=[], options={}){
           const _prevCacheWrite=(S.session&&S.session.cache_write_tokens)||0;
           S.session=d.session;S.messages=_carryForwardEphemeralTurnFields(S.messages||[], d.session.messages||[]);if(typeof _messagesTruncated!=='undefined')_messagesTruncated=!!d.session._messages_truncated;
           S.messages=_filterRecoveryControlMessages(S.messages || []);
+          if(typeof clearVisibleMessageRowCache==='function') clearVisibleMessageRowCache();
           if(S.session&&S.session.session_id){
             try{localStorage.setItem('hermes-webui-session',S.session.session_id);}catch(_){}
             if(typeof _setActiveSessionUrl==='function') _setActiveSessionUrl(S.session.session_id);
