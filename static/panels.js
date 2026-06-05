@@ -35,11 +35,10 @@ let _logsAutoRefreshTimer = null;
 let _lastLogsLines = [];
 let _logsSeverityFilter = 'all';
 
-
 // Map of panel names → i18n keys for the app titlebar label.
 const APP_TITLEBAR_KEYS = {
   chat: 'tab_chat', tasks: 'tab_tasks', skills: 'tab_skills',
-  channels: 'tab_channels', memory: 'tab_memory', workspaces: 'tab_workspaces',
+  memory: 'tab_memory', workspaces: 'tab_workspaces',
   profiles: 'tab_profiles', todos: 'tab_todos', insights: 'tab_insights', logs: 'tab_logs', settings: 'tab_settings',
 };
 
@@ -246,7 +245,7 @@ async function switchPanel(name, opts = {}) {
   // showing-<name> class on <main>; no class means chat (the default).
   const mainEl = document.querySelector('main.main');
   if (mainEl) {
-    ['settings','skills','channels','memory','tasks','kanban','workspaces','profiles','insights','logs','plugin'].forEach(p => {
+    ['settings','skills','memory','tasks','kanban','workspaces','profiles','insights','logs','plugin'].forEach(p => {
       mainEl.classList.toggle('showing-' + p, nextPanel === p);
     });
   }
@@ -266,7 +265,6 @@ async function switchPanel(name, opts = {}) {
     switchSettingsSection(_currentSettingsSection);
     loadSettingsPanel();
   }
-  if (nextPanel === 'channels') await _openRegisteredPanel('channels', () => renderChannelsPanel());
   if (opts.fromRailClick && typeof _isDesktopWidth === 'function' && !_isDesktopWidth()) {
     const sidebar = document.querySelector('.sidebar');
     const overlay = document.getElementById('mobileOverlay');
@@ -432,17 +430,34 @@ function _cronDiagnostics(job) {
   return JSON.stringify(fields, null, 2);
 }
 
+function _gatewayStatusReason(status) {
+  const health = status && typeof status.health === 'object' ? status.health : null;
+  if (!health) return '';
+  return typeof health.reason === 'string' ? health.reason.trim() : '';
+}
+
 function _cronGatewayNoticeHtml(status) {
   if (!status || (status.configured && status.running)) return '';
+  const reason = _gatewayStatusReason(status);
+  const isStaleMetadata = reason === 'gateway_stale_running_state';
+  const isRemoteUnreachable = reason === 'remote_gateway_unreachable';
   const notConfigured = !status.configured;
   const title = notConfigured
     ? 'Gateway not configured'
-    : 'Gateway not running';
+    : isStaleMetadata
+      ? 'Gateway metadata stale'
+      : isRemoteUnreachable
+        ? 'Gateway endpoint not reachable'
+        : 'Gateway not running';
   const body = notConfigured
     ? 'In Hermes WebUI, scheduled jobs require the Hermes gateway daemon. If this is a single-container Docker install, jobs can be created and run manually here, but scheduled ticks need a gateway container or `hermes gateway` running outside the WebUI.'
-    : 'In Hermes WebUI, scheduled jobs require the Hermes gateway daemon to be running. Start the gateway container or `hermes gateway` before relying on offline scheduled runs.';
+    : isStaleMetadata
+      ? 'The gateway is marked as configured, but its health metadata has gone stale. In Docker, scheduled jobs require a live gateway daemon that refreshes runtime metadata while ticking cron.'
+      : isRemoteUnreachable
+        ? 'The gateway health endpoint is not reachable from WebUI. Verify the configured gateway URL env var (`GATEWAY_HEALTH_URL`, `HERMES_GATEWAY_HEALTH_URL`, `HERMES_API_URL`, or `HERMES_WEBUI_GATEWAY_BASE_URL`) points to a reachable gateway service and network path before relying on cron ticking.'
+        : 'In Hermes WebUI, scheduled jobs require the Hermes gateway daemon to be running. Start the gateway container or `hermes gateway` before relying on offline scheduled runs.';
   const docsHref = 'https://github.com/nesquena/hermes-webui/blob/master/docs/docker.md#scheduled-jobs-and-the-gateway-daemon';
-  const helpLink = notConfigured
+  const helpLink = notConfigured || isRemoteUnreachable || isStaleMetadata
     ? `<p><a href="${docsHref}" target="_blank" rel="noopener">How to enable scheduled jobs in Docker ↗</a></p>`
     : '';
   return `
@@ -710,18 +725,9 @@ async function _loadRunContent(jobId, filename, runId){
   const body = document.querySelector(`#${runId} .detail-run-body`);
   if (!body) return;
   const item = document.getElementById(runId);
-  if (!item) return;
-  if (item.classList.contains('open')) {
-    item.classList.remove('open');
-    body.classList.remove('expanded');
-    const btn = item.querySelector('.detail-expand-toggle');
-    if (btn) {
-      const expanded = _cronExpansionGet(_cronRunExpandKey(jobId, filename));
-      btn.textContent = expanded ? '▴' : '▾';
-    }
-    return;
+  if (!item.classList.contains('open')) {
+    item.classList.add('open');
   }
-  item.classList.add('open');
   body.classList.toggle('expanded', _cronExpansionGet(_cronRunExpandKey(jobId, filename)));
   body.innerHTML = `<span style="opacity:.5">${esc(t('loading'))}</span>`;
   try {
@@ -2660,34 +2666,69 @@ async function loadKanbanTask(taskId){
   } catch(e) { showToast(t('kanban_unavailable') + ': ' + (e.message || e), 'error'); }
 }
 
+// Phase 2: Single-source-of-truth render.
+//
+// Reads `S.todos` (set by the `todo_state` SSE listener, INFLIGHT
+// restore, or session cold-load — see _hydrateTodosFromSession in
+// ui.js).  When `S.todoStateMeta` is null we have never seen an
+// explicit signal and fall through to the legacy reverse-scan over
+// settled tool messages — this keeps the panel populated against
+// pre-Phase-1 servers and during the upgrade window.
+//
+// The render is short-circuited via `_todosLastRenderedHash` (defined
+// in ui.js): repeated emissions that yield identical DOM are no-ops.
+// Coalescing of bursty live updates happens upstream in
+// scheduleTodosRefresh().
 function loadTodos() {
   const panel = $('todoPanel');
   if (!panel) return;
 
-  const sessionTodoState = S.session && S.session.todo_state;
   let todos;
-  if (sessionTodoState && Array.isArray(sessionTodoState.todos)) {
-    todos = sessionTodoState.todos;
+  if (S.todoStateMeta) {
+    todos = Array.isArray(S.todos) ? S.todos : [];
   } else {
     todos = _legacyTodosFromMessages();
   }
 
   if (!todos.length) {
+    if (typeof _todosLastRenderedHash !== 'undefined' && _todosLastRenderedHash === '__empty__') return;
     panel.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:4px 0">${esc(t('todos_no_active'))}</div>`;
+    if (typeof _todosLastRenderedHash !== 'undefined') _todosLastRenderedHash = '__empty__';
     return;
   }
+
+  if (typeof _todosHash === 'function' && typeof _todosLastRenderedHash !== 'undefined') {
+    const hash = _todosHash(todos);
+    if (hash === _todosLastRenderedHash) return;
+    _todosLastRenderedHash = hash;
+  }
+
   const statusIcon = {pending:li('square',14), in_progress:li('loader',14), completed:li('check',14), cancelled:li('x',14)};
   const statusColor = {pending:'var(--muted)', in_progress:'var(--blue)', completed:'rgba(100,200,100,.8)', cancelled:'rgba(200,100,100,.5)'};
-  panel.innerHTML = todos.map(todo => `
+  // Single innerHTML join is the cheapest correct way to materialize
+  // ~10–50 leaf nodes.  All user-controlled content goes through esc().
+  panel.innerHTML = todos.map(td => `
     <div style="display:flex;align-items:flex-start;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);">
-      <span style="font-size:14px;display:inline-flex;align-items:center;flex-shrink:0;margin-top:1px;color:${statusColor[todo.status]||'var(--muted)'}">${statusIcon[todo.status]||li('square',14)}</span>
+      <span style="font-size:14px;display:inline-flex;align-items:center;flex-shrink:0;margin-top:1px;color:${statusColor[td.status]||'var(--muted)'}">${statusIcon[td.status]||li('square',14)}</span>
       <div style="flex:1;min-width:0">
-        <div style="font-size:13px;color:${todo.status==='completed'?'var(--muted)':todo.status==='in_progress'?'var(--text)':'var(--text)'};${todo.status==='completed'?'text-decoration:line-through;opacity:.5':''};line-height:1.4">${esc(todo.content)}</div>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px;opacity:.6">${esc(todo.id)} · ${esc(todo.status)}</div>
+        <div style="font-size:13px;color:${td.status==='completed'?'var(--muted)':td.status==='in_progress'?'var(--text)':'var(--text)'};${td.status==='completed'?'text-decoration:line-through;opacity:.5':''};line-height:1.4">${esc(td.content)}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px;opacity:.6">${esc(td.id)} · ${esc(td.status)}</div>
       </div>
     </div>`).join('');
 }
 
+// Legacy fallback: reverse-scan settled tool messages for the most
+// recent {"todos":[...]} payload.  Used only when no `todo_state`
+// signal has been seen for the current session — primarily during
+// upgrade windows where the server has not yet been redeployed with
+// Phase 1.  Once Phase 1 is universally deployed and a stabilization
+// period has passed, this can be removed (Phase 3).
+//
+// Variable name `sourceMessages` is preserved verbatim from the
+// original loadTodos() implementation so the matching regression
+// test (R-todo-survive-refresh in tests/test_regressions.py) keeps
+// catching any future refactor that drops the raw-session-messages
+// fallback. See the test for the exact contract.
 function _legacyTodosFromMessages() {
   const sourceMessages = (S.session && Array.isArray(S.session.messages) && S.session.messages.length) ? S.session.messages : S.messages;
   if (!Array.isArray(sourceMessages)) return [];
@@ -2701,7 +2742,7 @@ function _legacyTodosFromMessages() {
     if (!content || content.indexOf('"todos"') < 0) continue;
     try {
       const d = JSON.parse(content);
-      if (d && Array.isArray(d.todos) && d.todos.length) return d.todos;
+      if (d && Array.isArray(d.todos)) return d.todos;
     } catch (_) {}
   }
   return [];
@@ -3126,8 +3167,6 @@ function _syncLogsWrap() {
   const wrap = $('logsWrap');
   if (out && wrap) out.classList.toggle('wrap', !!wrap.checked);
 }
-
-
 
 async function loadLogs(animate) {
   const box = $('logsOutput');
@@ -4798,11 +4837,6 @@ function _renderWorkspaceForm({ name, path, isEdit }){
   if (!isEdit) _wireWorkspaceFormPathSuggestions();
   const focus = isEdit ? $('workspaceFormName') : $('workspaceFormPath');
   if (focus) focus.focus();
-  // Add Browse button for folder picker (workspace-picker.js)
-  if (!isEdit && typeof addBrowseButton === 'function') {
-    const pathInput = $('workspaceFormPath');
-    if (pathInput) addBrowseButton(pathInput);
-  }
 }
 
 function cancelWorkspaceForm(){
@@ -4931,19 +4965,13 @@ async function promptWorkspacePath(){
     }catch(e){showToast(t('workspace_switch_failed')+e.message);return;}
     if(!S.session)return;
   }
-  const promptPromise=showPromptDialog({
+  const value=await showPromptDialog({
     title:t('workspace_switch_prompt_title'),
     message:t('workspace_switch_prompt_message'),
     confirmLabel:t('workspace_switch_prompt_confirm'),
     placeholder:t('workspace_switch_prompt_placeholder'),
     value:S.session.workspace||''
   });
-  // Add Browse button next to the dialog input (workspace-picker.js)
-  if(typeof addBrowseButton==='function'){
-    const dialogInput=$('appDialogInput');
-    if(dialogInput) addBrowseButton(dialogInput);
-  }
-  const value=await promptPromise;
   const path=(value||'').trim();
   if(!path)return;
   try{
@@ -5317,6 +5345,7 @@ async function switchToProfile(name) {
     const data = await api('/api/profile/switch', { method: 'POST', body: JSON.stringify({ name }) });
     if (_switchGen !== _profileSwitchGeneration) return;
     S.activeProfile = data.active || name;
+    S.activeProfileIsDefault = !!data.is_default;
 
     // Update composer placeholder and title bar while the core profile-switch
     // state is still close to the profile API response.
@@ -5786,32 +5815,8 @@ function switchSettingsSection(name){
   const dd=$('settingsSectionDropdown');
   if(dd && dd.value!==section) dd.value=section;
   // Lazy-load integration panels when their tabs are opened
-  if(section==='providers') _openRegisteredSettingsSection('providers', () => loadProvidersPanel());
+  if(section==='providers') loadProvidersPanel();
   if(section==='plugins') loadPluginsPanel();
-}
-
-async function _openRegisteredPanel(panel, fallback){
-  if(window.HermesPanelRegistry && typeof window.HermesPanelRegistry.openPanel === 'function'){
-    const handled = await window.HermesPanelRegistry.openPanel(panel, {panel});
-    if(handled) return;
-  }
-  if(typeof fallback === 'function') return fallback();
-}
-
-async function _openRegisteredSettingsSection(section, fallback){
-  if(window.HermesPanelRegistry && typeof window.HermesPanelRegistry.openSettingsSection === 'function'){
-    const handled = await window.HermesPanelRegistry.openSettingsSection(section, {section});
-    if(handled) return;
-  }
-  if(typeof fallback === 'function') return fallback();
-}
-
-async function _notifyRegisteredSettingsLoaded(section, fallback){
-  if(window.HermesPanelRegistry && typeof window.HermesPanelRegistry.settingsLoaded === 'function'){
-    const handled = await window.HermesPanelRegistry.settingsLoaded(section, {section});
-    if(handled) return;
-  }
-  if(typeof fallback === 'function') return fallback();
 }
 
 function _syncHermesPanelSessionActions(){
@@ -6278,7 +6283,10 @@ async function loadSettingsPanel(){
         }
       }
       langSel.value=resolvedLanguage;
-      langSel.addEventListener('change',_schedulePreferencesAutosave,{once:false});
+      langSel.addEventListener('change',function(){
+        if(typeof setLocale==='function'){setLocale(this.value);if(typeof applyLocaleToDOM==='function')applyLocaleToDOM();}
+        _schedulePreferencesAutosave();
+      },{once:false});
     }
     const showUsageCb=$('settingsShowTokenUsage');
     if(showUsageCb){showUsageCb.checked=!!settings.show_token_usage;showUsageCb.addEventListener('change',_schedulePreferencesAutosave,{once:false});}
@@ -6355,7 +6363,6 @@ async function loadSettingsPanel(){
     if(ttsEnabledCb){ttsEnabledCb.checked=localStorage.getItem('hermes-tts-enabled')==='true';ttsEnabledCb.onchange=function(){localStorage.setItem('hermes-tts-enabled',this.checked?'true':'false');_applyTtsEnabled(this.checked);};}
     const ttsAutoReadCb=$('settingsTtsAutoRead');
     if(ttsAutoReadCb){ttsAutoReadCb.checked=localStorage.getItem('hermes-tts-auto-read')==='true';ttsAutoReadCb.onchange=function(){localStorage.setItem('hermes-tts-auto-read',this.checked?'true':'false');};}
-    const ttsVoiceSel=$('settingsTtsVoice');
     // Voice-mode button visibility (#1488). localStorage-only; no server round-trip.
     // Toggling re-applies immediately via the boot.js helper so the user sees
     // the audio-waveform button appear/disappear without a reload.
@@ -6378,12 +6385,28 @@ async function loadSettingsPanel(){
       };
     }
     // Populate voice selector based on engine
+    const ttsVoiceSel=$('settingsTtsVoice');
     window._populateTtsVoices=function(){
       if(!ttsVoiceSel) return;
       const engine=localStorage.getItem('hermes-tts-engine')||'browser';
       const current=localStorage.getItem('hermes-tts-voice')||'';
       if(engine==='edge'){
-        ttsVoiceSel.innerHTML='<option value="">Edge TTS (voice configured via provider control)</option>';
+        const edgeVoices=[
+          {value:'zh-CN-XiaoxiaoNeural',label:'Xiaoxiao (Chinese, Female)'},
+          {value:'zh-CN-XiaoyiNeural',label:'Xiaoyi (Chinese, Female)'},
+          {value:'zh-CN-YunxiNeural',label:'Yunxi (Chinese, Male)'},
+          {value:'zh-CN-YunjianNeural',label:'Yunjian (Chinese, Male)'},
+          {value:'zh-CN-YunyangNeural',label:'Yunyang (Chinese, Male)'},
+          {value:'en-US-AriaNeural',label:'Aria (English, Female)'},
+          {value:'en-US-GuyNeural',label:'Guy (English, Male)'},
+        ];
+        ttsVoiceSel.innerHTML='<option value="">Default (Xiaoxiao)</option>';
+        edgeVoices.forEach(v=>{
+          const opt=document.createElement('option');
+          opt.value=v.value;opt.textContent=v.label;
+          if(v.value===current) opt.selected=true;
+          ttsVoiceSel.appendChild(opt);
+        });
       } else {
         if(!('speechSynthesis' in window)){
           ttsVoiceSel.innerHTML='<option value="">Speech synthesis not available</option>';
@@ -6490,7 +6513,7 @@ async function loadSettingsPanel(){
     }
     _syncHermesPanelSessionActions();
     if(typeof loadDashboardSettings==='function') loadDashboardSettings();
-    _notifyRegisteredSettingsLoaded('providers', () => loadProvidersPanel()); // load provider cards in background
+    loadProvidersPanel(); // load provider cards in background
     loadPluginsPanel(); // load plugin/hook visibility in background
     switchSettingsSection(_settingsSection);
   }catch(e){
@@ -6633,52 +6656,6 @@ const enabled=plugin&&plugin.enabled!==false;
   return card;
 }
 
-// Provider settings logic moved to static/provider-config.js.
-// Compatibility anchors kept here intentionally so existing regression tests,
-// downstream patches, and future merges can still locate the provider panel
-// entrypoints and quota-related tokens in this file while the implementation
-// lives in static/provider-config.js.
-// loadProvidersPanel thin facade tokens:
-// let _providersPanelLoadPromise = null;
-// if(_providersPanelLoadPromise) return _providersPanelLoadPromise;
-// if(_providersPanelLoadPromise===loadPromise) _providersPanelLoadPromise=null;
-// filter(p=>p.configurable||p.is_oauth||p.is_custom)
-// list.dataset.providersLoaded='1';
-// if(list.dataset.providersLoaded==='1') return;
-// list.dataset.providersLoaded='0';
-// _fetchProviderQuotaStatus(false)
-// '/api/provider/quota'
-// function _refreshProviderQuota
-// function _fetchProviderQuotaStatus
-// function _buildProviderQuotaCard
-// provider_quota_title
-// provider-quota-card
-// account_limits
-// remaining_percent
-// provider-quota-details
-// provider_quota_credential_pool
-// provider-quota-pool-row
-// _buildProviderQuotaPoolBreakdown
-// _providerQuotaPoolShouldDefaultOpen
-// hermes-provider-quota-pool-open
-// provider-quota-pool-chevron
-// aria-hidden="true"
-// count>0&&count<=3
-// status.status==='available'||accountLimits.pool
-// provider-quota-window-detail
-// provider_quota_session_limit
-// provider_quota_weekly_limit
-// _providerQuotaUnavailableReason
-// provider_quota_retry_after
-// accountLimits.details)&&!accountLimits.pool
-// refresh=1
-// cache:'no-store'
-// data-provider-quota-refresh
-// provider_quota_refresh_usage
-// provider_quota_refresh_succeeded
-// provider_quota_refresh_failed
-// card.isConnected&&button
-// provider_quota_last_checked
 // ── Plugin pages ─────────────────────────────────────────────────────────────
 
 let _currentPluginPage = null;
@@ -6721,6 +6698,584 @@ async function _loadPluginPage(path, label) {
   _currentPluginPage = { path, label };
 }
 
+// ── Providers panel ─────────────────────────────────────────────────────────
+
+const _providerCardEls = new Map(); // providerId → {card, statusDot, input, saveBtn, removeBtn}
+
+async function _fetchProviderQuotaStatus(force=false){
+  const endpoint=force?`/api/provider/quota?refresh=1&ts=${Date.now()}`:'/api/provider/quota';
+  const status=await api(endpoint,{cache:'no-store'});
+  if(status&&typeof status==='object') status.client_fetched_at=new Date().toISOString();
+  return status;
+}
+
+async function loadProvidersPanel(){
+  const list=$('providersList');
+  const empty=$('providersEmpty');
+  if(!list) return;
+  try{
+    const data=await api('/api/providers');
+    const quota=await _fetchProviderQuotaStatus(false).catch(e=>({ok:false,status:'unavailable',quota:null,message:e.message||t('provider_quota_unavailable'),client_fetched_at:new Date().toISOString()}));
+    const providers=(data.providers||[]).filter(p=>p.configurable||p.is_oauth||p.is_custom||p.is_plugin_provider);
+    list.innerHTML='';
+    _providerCardEls.clear();
+    const quotaCard=_buildProviderQuotaCard(quota);
+    if(quotaCard) list.appendChild(quotaCard);
+    if(providers.length===0){
+      list.style.display='none';
+      if(empty) empty.style.display='';
+      return;
+    }
+    if(empty) empty.style.display='none';
+    list.style.display='';
+    for(const p of providers){
+      list.appendChild(_buildProviderCard(p));
+    }
+  }catch(e){
+    list.innerHTML='<div style="color:var(--error);padding:12px;font-size:13px">Failed to load providers: '+esc(e.message||String(e))+'</div>';
+  }
+}
+
+async function _refreshProviderQuota(card,button){
+  if(!card) return;
+  if(button){
+    button.disabled=true;
+    button.textContent=t('provider_quota_refreshing');
+    button.setAttribute('aria-busy','true');
+  }
+  let failed=false;
+  let next;
+  try{
+    next=await _fetchProviderQuotaStatus(true);
+    failed=next&&next.ok===false;
+  }catch(e){
+    failed=true;
+    next={ok:false,status:'unavailable',quota:null,message:e.message||t('provider_quota_unavailable'),client_fetched_at:new Date().toISOString()};
+  }
+  try{
+    const fresh=_buildProviderQuotaCard(next);
+    if(fresh){
+      card.replaceWith(fresh);
+      if(typeof showToast==='function') showToast(failed?t('provider_quota_refresh_failed'):t('provider_quota_refresh_succeeded'));
+      return;
+    }
+  }catch(e){
+    failed=true;
+  }
+  if(card.isConnected&&button){
+    button.disabled=false;
+    button.textContent=t('provider_quota_refresh_usage');
+    button.removeAttribute('aria-busy');
+  }
+  if(typeof showToast==='function') showToast(t('provider_quota_refresh_failed'));
+}
+
+function _formatProviderQuotaMoney(value){
+  if(value===null||value===undefined||value==='') return '—';
+  const n=Number(value);
+  if(!Number.isFinite(n)) return '—';
+  return '$'+n.toFixed(2);
+}
+
+function _formatProviderQuotaPercent(value){
+  if(value===null||value===undefined||value==='') return '—';
+  const n=Number(value);
+  if(!Number.isFinite(n)) return '—';
+  return Math.max(0,Math.min(100,Math.round(n)))+'%';
+}
+
+function _formatProviderQuotaReset(value){
+  if(!value) return '';
+  const d=new Date(value);
+  if(Number.isNaN(d.getTime())) return '';
+  try{return d.toLocaleString();}catch(e){return value;}
+}
+
+function _formatProviderQuotaWindowLabel(accountLimits,w){
+  const raw=((w&&w.label)||t('provider_quota_window_fallback')).trim();
+  const provider=((accountLimits&&accountLimits.provider)||'').toLowerCase();
+  if(provider==='openai-codex'){
+    if(raw.toLowerCase()==='session') return t('provider_quota_session_limit');
+    if(raw.toLowerCase()==='weekly') return t('provider_quota_weekly_limit');
+  }
+  return raw||t('provider_quota_window_fallback');
+}
+
+function _formatProviderQuotaLastChecked(status){
+  const accountLimits=status&&status.account_limits;
+  const value=(accountLimits&&accountLimits.fetched_at)||status&&status.client_fetched_at;
+  if(!value) return t('provider_quota_last_checked_after_refresh');
+  const d=new Date(value);
+  if(Number.isNaN(d.getTime())) return t('provider_quota_last_checked_after_refresh');
+  try{return t('provider_quota_last_checked',d.toLocaleString());}catch(e){return t('provider_quota_last_checked',value);}
+}
+
+function _providerQuotaStateClass(value){
+  return String(value||'unavailable').replace(/[^a-z0-9_-]/gi,'').toLowerCase()||'unavailable';
+}
+
+function _providerQuotaStatusLabel(value){
+  const state=_providerQuotaStateClass(value);
+  const key={
+    available:'provider_quota_status_available',
+    exhausted:'provider_quota_status_exhausted',
+    unavailable:'provider_quota_status_unavailable',
+    failed:'provider_quota_status_failed',
+    checked:'provider_quota_status_checked',
+    no_key:'provider_quota_status_no_key',
+    invalid_key:'provider_quota_status_invalid_key',
+    unsupported:'provider_quota_status_unsupported',
+  }[state];
+  return key?t(key):state.replace(/_/g,' ');
+}
+
+function _providerQuotaWindowMeta(used,reset){
+  const meta=[];
+  if(used!=='—') meta.push(t('provider_quota_used_meta',used));
+  if(reset) meta.push(t('provider_quota_resets_meta',reset));
+  return meta;
+}
+
+function _providerQuotaRetryAfterText(value){
+  const retry=_formatProviderQuotaReset(value);
+  return retry?t('provider_quota_retry_after',retry):'';
+}
+
+function _providerQuotaUnavailableReason(credential){
+  const structured=_providerQuotaRetryAfterText(credential&&credential.retry_after);
+  if(structured) return structured;
+  const raw=String((credential&&credential.unavailable_reason)||'').trim();
+  const match=raw.match(/\bretry after\s+([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+-]+Z?)/i);
+  if(match){
+    const parsed=_providerQuotaRetryAfterText(match[1]);
+    if(parsed) return parsed;
+  }
+  return raw;
+}
+
+function _providerQuotaPoolShouldDefaultOpen(pool){
+  try{
+    const saved=localStorage.getItem('hermes-provider-quota-pool-open');
+    if(saved==='1') return true;
+    if(saved==='0') return false;
+  }catch(e){}
+  const count=Array.isArray(pool&&pool.credentials)?pool.credentials.length:0;
+  return count>0&&count<=3;
+}
+
+function _buildProviderQuotaPoolBreakdown(accountLimits){
+  const pool=accountLimits&&accountLimits.pool;
+  if(!pool||!Array.isArray(pool.credentials)||pool.credentials.length===0) return '';
+  const defaultOpen=_providerQuotaPoolShouldDefaultOpen(pool);
+  const total=Number.isFinite(Number(pool.total_credentials))?Number(pool.total_credentials):pool.credentials.length;
+  const available=Number.isFinite(Number(pool.available_credentials))?Number(pool.available_credentials):pool.credentials.filter(c=>c&&c.status==='available').length;
+  const exhausted=Number.isFinite(Number(pool.exhausted_credentials))?Number(pool.exhausted_credentials):0;
+  const failed=Number.isFinite(Number(pool.failed_credentials))?Number(pool.failed_credentials):0;
+  const queried=Number.isFinite(Number(pool.queried_credentials))?Number(pool.queried_credentials):0;
+  const summaryParts=[t('provider_quota_pool_summary_available',available,total)];
+  if(exhausted>0) summaryParts.push(t('provider_quota_pool_summary_exhausted',exhausted));
+  if(failed>0) summaryParts.push(t('provider_quota_pool_summary_failed',failed));
+  if(queried>0) summaryParts.push(t('provider_quota_pool_summary_checked',queried));
+  const planParts=Array.isArray(pool.plans)?pool.plans.filter(Boolean):[];
+  const rows=pool.credentials.map((credential,idx)=>{
+    const label=(credential&&credential.label)||t('provider_quota_credential_label',idx+1);
+    const status=_providerQuotaStateClass(credential&&credential.status);
+    const statusText=_providerQuotaStatusLabel(credential&&credential.status);
+    const plan=credential&&credential.plan?` · ${credential.plan}`:'';
+    const windows=Array.isArray(credential&&credential.windows)?credential.windows:[];
+    const details=Array.isArray(credential&&credential.details)?credential.details.filter(Boolean):[];
+    const unavailableReason=_providerQuotaUnavailableReason(credential);
+    const windowHtml=windows.length?windows.map(w=>{
+      const remaining=_formatProviderQuotaPercent(w&&w.remaining_percent);
+      const used=_formatProviderQuotaPercent(w&&w.used_percent);
+      const reset=_formatProviderQuotaReset(w&&w.reset_at);
+      const meta=_providerQuotaWindowMeta(used,reset);
+      const detail=(w&&w.detail)?String(w.detail).trim():'';
+      return `<div class="provider-quota-pool-window"><span>${esc(_formatProviderQuotaWindowLabel(accountLimits,w))}</span><strong>${esc(remaining)}</strong>${meta.length?`<small>${esc(meta.join(' · '))}</small>`:''}${detail?`<small class="provider-quota-window-detail">${esc(detail)}</small>`:''}</div>`;
+    }).join(''):`<div class="provider-quota-pool-note">${esc(unavailableReason||t('provider_quota_pool_no_windows'))}</div>`;
+    const detailHtml=details.length?`<div class="provider-quota-pool-details">${details.map(d=>`<span>${esc(d)}</span>`).join('')}</div>`:'';
+    return `
+      <div class="provider-quota-pool-row provider-quota-pool-row-${status}">
+        <div class="provider-quota-pool-row-head">
+          <span>${esc(label)}${esc(plan)}</span>
+          <strong>${esc(statusText)}</strong>
+        </div>
+        <div class="provider-quota-pool-windows">${windowHtml}</div>
+        ${detailHtml}
+      </div>
+    `;
+  }).join('');
+  const planText=planParts.length?`<div class="provider-quota-pool-plans">${esc(t('provider_quota_pool_plans',planParts.join(', ')))}</div>`:'';
+  return `
+    <details class="provider-quota-pool"${defaultOpen?' open':''}>
+      <summary><span class="provider-quota-pool-summary-label"><span class="provider-quota-pool-chevron" aria-hidden="true"></span><span>${esc(t('provider_quota_credential_pool'))}</span></span><strong>${esc(summaryParts.join(' · '))}</strong></summary>
+      ${planText}
+      <div class="provider-quota-pool-rows">${rows}</div>
+    </details>
+  `;
+}
+
+function _buildProviderQuotaCard(status){
+  if(!status) return null;
+  const card=document.createElement('div');
+  const state=(status.status||'unavailable').replace(/[^a-z0-9_-]/gi,'').toLowerCase()||'unavailable';
+  card.className='provider-quota-card provider-quota-card-'+state;
+  const accountLimits=status.account_limits||null;
+  const providerBase=status.display_name||status.provider||t('provider_quota_active_provider');
+  const provider=(accountLimits&&accountLimits.plan)?`${providerBase} · ${accountLimits.plan}`:providerBase;
+  const quota=status.quota||null;
+  let body='';
+  if(accountLimits&&(status.status==='available'||accountLimits.pool)){
+    const windows=Array.isArray(accountLimits.windows)?accountLimits.windows:[];
+    const details=Array.isArray(accountLimits.details)&&!accountLimits.pool?accountLimits.details:[];
+    const windowHtml=windows.map(w=>{
+      const used=_formatProviderQuotaPercent(w&&w.used_percent);
+      const reset=_formatProviderQuotaReset(w&&w.reset_at);
+      const meta=_providerQuotaWindowMeta(used,reset);
+      const detail=(w&&w.detail)?String(w.detail).trim():'';
+      return `
+        <div class="provider-quota-metric provider-quota-window">
+          <span>${esc(_formatProviderQuotaWindowLabel(accountLimits,w))}</span>
+          <strong>${esc(_formatProviderQuotaPercent(w&&w.remaining_percent))}</strong>
+          ${meta.length?`<small>${esc(meta.join(' · '))}</small>`:''}
+          ${detail?`<small class="provider-quota-window-detail">${esc(detail)}</small>`:''}
+        </div>
+      `;
+    }).join('');
+    const detailHtml=details.length
+      ? `<div class="provider-quota-details">${details.map(d=>`<span>${esc(d)}</span>`).join('')}</div>`
+      : '';
+    const poolHtml=_buildProviderQuotaPoolBreakdown(accountLimits);
+    body=windowHtml+detailHtml+poolHtml;
+    if(!body) body=`<div class="provider-quota-message">${esc(status.message||t('provider_quota_account_limits_loaded'))}</div>`;
+  }else if(status.status==='available'&&quota){
+    body=`
+      <div class="provider-quota-metric"><span>${esc(t('provider_quota_metric_remaining'))}</span><strong>${esc(_formatProviderQuotaMoney(quota.limit_remaining))}</strong></div>
+      <div class="provider-quota-metric"><span>${esc(t('provider_quota_metric_used'))}</span><strong>${esc(_formatProviderQuotaMoney(quota.usage))}</strong></div>
+      <div class="provider-quota-metric"><span>${esc(t('provider_quota_metric_limit'))}</span><strong>${esc(_formatProviderQuotaMoney(quota.limit))}</strong></div>
+    `;
+  }else{
+    body=`<div class="provider-quota-message">${esc(status.message||t('provider_quota_unavailable'))}</div>`;
+  }
+  card.innerHTML=`
+    <div class="provider-quota-header">
+      <div>
+        <div class="provider-quota-title">${esc(t('provider_quota_title'))}</div>
+        <div class="provider-quota-subtitle">${esc(provider)}</div>
+        <div class="provider-quota-checked">${esc(_formatProviderQuotaLastChecked(status))}</div>
+      </div>
+      <div class="provider-quota-actions">
+        <span class="provider-quota-badge">${esc(_providerQuotaStatusLabel(state))}</span>
+        <button class="provider-quota-refresh" type="button" data-provider-quota-refresh title="${esc(t('provider_quota_refresh_title'))}">${esc(t('provider_quota_refresh_usage'))}</button>
+      </div>
+    </div>
+    <div class="provider-quota-body">${body}</div>
+  `;
+  const refreshBtn=card.querySelector('[data-provider-quota-refresh]');
+  if(refreshBtn) refreshBtn.addEventListener('click',()=>_refreshProviderQuota(card,refreshBtn));
+  const poolDetails=card.querySelector('.provider-quota-pool');
+  if(poolDetails){
+    poolDetails.addEventListener('toggle',()=>{
+      try{localStorage.setItem('hermes-provider-quota-pool-open',poolDetails.open?'1':'0');}catch(e){}
+    });
+  }
+  return card;
+}
+
+function _buildProviderCard(p){
+  const card=document.createElement('div');
+  card.className='provider-card';
+  card.dataset.provider=p.id;
+  // Use the is_oauth flag from the backend — it reflects _OAUTH_PROVIDERS in providers.py.
+  // key_source can be 'oauth' (hermes auth), 'config_yaml' (token in config.yaml), or 'none'.
+  const isOauth=p.is_oauth===true;
+  // models_total reflects the complete catalog (e.g. 396 for a large-tier
+  // Nous Portal account). The "models" array may be trimmed to a featured
+  // subset for UI scannability — fall back to its length only when the
+  // server didn't supply models_total (older builds, custom providers).
+  const modelCount=Number.isFinite(p.models_total)
+    ? p.models_total
+    : (Array.isArray(p.models) ? p.models.length : 0);
+  const sourceLabel=p.key_source==='oauth'
+    ? t('providers_status_oauth')
+    : p.key_source==='config_yaml'
+      ? t('providers_status_configured')||'Configured'
+      : (p.has_key ? t('providers_status_api_key') : t('providers_status_not_configured_label'));
+  const metaParts=[];
+  if(modelCount>0) metaParts.push(modelCount+(modelCount===1?' model':' models'));
+  metaParts.push(sourceLabel);
+  const metaText=metaParts.join(' · ');
+
+  // Clickable header (toggles body)
+  const header=document.createElement('button');
+  header.type='button';
+  header.className='provider-card-header';
+  header.innerHTML=`
+    <div class="provider-card-info">
+      <div class="provider-card-name">${esc(p.display_name)}</div>
+      <div class="provider-card-meta">${esc(metaText)}</div>
+    </div>
+    ${p.has_key?`<span class="provider-card-badge">${esc(t('providers_status_configured'))}</span>`:''}
+    <svg class="provider-card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="16" height="16"><path d="M6 9l6 6 6-6"/></svg>
+  `;
+  card.appendChild(header);
+
+  const body=document.createElement('div');
+  body.className='provider-card-body';
+
+  if(isOauth){
+    const hint=document.createElement('div');
+    hint.className='provider-card-hint';
+    if(p.key_source==='config_yaml'){
+      hint.textContent=t('providers_oauth_config_yaml_hint')||'Token configured via config.yaml. To update, edit the providers section in your config.yaml or run hermes auth.';
+    } else if(p.auth_error){
+      hint.textContent=p.auth_error;
+      hint.style.color='var(--accent)';
+    } else if(p.has_key){
+      hint.textContent=t('providers_oauth_hint');
+    } else {
+      hint.textContent=t('providers_oauth_not_configured_hint')||'Not authenticated. Run hermes auth in the terminal to configure this provider.';
+      hint.style.color='var(--muted)';
+    }
+    body.appendChild(hint);
+    card.appendChild(body);
+    header.addEventListener('click',()=>card.classList.toggle('open'));
+    return card;
+  }
+
+  let input=null;
+  let saveBtn=null;
+  if(p.configurable){
+    const field=document.createElement('div');
+    field.className='provider-card-field';
+    const label=document.createElement('label');
+    label.className='provider-card-label';
+    label.textContent=t('providers_status_api_key');
+    field.appendChild(label);
+
+    const row=document.createElement('div');
+    row.className='provider-card-row';
+    input=document.createElement('input');
+    input.type='password';
+    input.className='provider-card-input';
+    input.placeholder=p.has_key?t('providers_key_placeholder_replace'):t('providers_key_placeholder_new');
+    input.autocomplete='off';
+    const toggleBtn=document.createElement('button');
+    toggleBtn.type='button';
+    toggleBtn.className='provider-card-btn provider-card-btn-ghost';
+    toggleBtn.textContent='Show';
+    toggleBtn.onclick=()=>{
+      const revealed=input.type==='text';
+      input.type=revealed?'password':'text';
+      toggleBtn.textContent=revealed?'Show':'Hide';
+    };
+    saveBtn=document.createElement('button');
+    saveBtn.type='button';
+    saveBtn.className='provider-card-btn provider-card-btn-primary';
+    saveBtn.textContent=t('providers_save');
+    saveBtn.onclick=()=>_saveProviderKey(p.id);
+    saveBtn.disabled=true;
+    row.appendChild(input);
+    row.appendChild(toggleBtn);
+    row.appendChild(saveBtn);
+    if(p.has_key){
+      const removeBtn=document.createElement('button');
+      removeBtn.type='button';
+      removeBtn.className='provider-card-btn provider-card-btn-danger';
+      removeBtn.textContent=t('providers_remove');
+      removeBtn.onclick=()=>_removeProviderKey(p.id);
+      row.appendChild(removeBtn);
+    }
+    field.appendChild(row);
+    body.appendChild(field);
+  }else{
+    const hint=document.createElement('div');
+    hint.className='provider-card-hint';
+    hint.textContent=p.is_custom
+      ? 'Custom provider loaded from config.yaml / hermes model. Edit it from the CLI or config file.'
+      : 'Provider is managed outside the WebUI.';
+    body.appendChild(hint);
+  }
+
+  // Model list — show when provider has known models
+  if(modelCount>0){
+    const modelSection=document.createElement('div');
+    modelSection.className='provider-card-models';
+    const modelLabel=document.createElement('div');
+    modelLabel.className='provider-card-label';
+    modelLabel.textContent='Models';
+    modelSection.appendChild(modelLabel);
+    const modelList=document.createElement('div');
+    modelList.className='provider-card-model-tags';
+    const renderedModels=Array.isArray(p.models)?p.models:[];
+    for(const m of renderedModels){
+      const tag=document.createElement('span');
+      tag.className='provider-card-model-tag';
+      tag.textContent=m.id||m.label||m;
+      modelList.appendChild(tag);
+    }
+    // When the rendered list is a strict subset of the total catalog (Nous
+    // Portal large-tier accounts hit this with ~400-model catalogs), show
+    // a "+N more" trailing pill so the user knows the picker is intentionally
+    // capped — and they can still reach the full catalog via the /model
+    // slash command (its autocomplete consumes the un-trimmed list from
+    // /api/models's extra_models field). #1567.
+    const totalCount=Number.isFinite(p.models_total)?p.models_total:renderedModels.length;
+    const hiddenCount=Math.max(0, totalCount - renderedModels.length);
+    if(hiddenCount>0){
+      const more=document.createElement('span');
+      more.className='provider-card-model-tag provider-card-model-tag-more';
+      more.textContent='+'+hiddenCount+' more';
+      more.title='The /model slash command can autocomplete every model in this provider\'s catalog.';
+      modelList.appendChild(more);
+    }
+    modelSection.appendChild(modelList);
+    body.appendChild(modelSection);
+  }
+
+  // Refresh models for this provider
+  const refreshRow=document.createElement('div');
+  refreshRow.className='provider-card-row';
+  refreshRow.style.marginTop='6px';
+  const refreshBtn=document.createElement('button');
+  refreshBtn.type='button';
+  refreshBtn.className='provider-card-btn provider-card-btn-ghost';
+  refreshBtn.style.display='flex';
+  refreshBtn.style.alignItems='center';
+  refreshBtn.style.gap='5px';
+  refreshBtn.innerHTML=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg> ${t('providers_refresh_models')||'Refresh Models'}`;
+  refreshBtn.onclick=()=>_refreshProviderModels(p.id, refreshBtn);
+  refreshRow.appendChild(refreshBtn);
+  body.appendChild(refreshRow);
+  card.appendChild(body);
+
+  if(input&&saveBtn){
+    _providerCardEls.set(p.id,{card,input,saveBtn,hasKey:p.has_key});
+    input.addEventListener('input',()=>{saveBtn.disabled=!input.value.trim();});
+  }
+  header.addEventListener('click',e=>{
+    // Don't toggle when clicking inside body (defensive; body isn't inside header)
+    if(e.target.closest('.provider-card-body')) return;
+    card.classList.toggle('open');
+    if(card.classList.contains('open')) setTimeout(()=>input.focus(),0);
+  });
+  return card;
+}
+
+async function _saveProviderKey(providerId){
+  const els=_providerCardEls.get(providerId);
+  if(!els) return;
+  const key=els.input.value.trim();
+  if(!key){
+    showToast(t('providers_enter_key'));
+    return;
+  }
+  els.saveBtn.disabled=true;
+  els.saveBtn.textContent=t('providers_saving');
+  try{
+    const res=await api('/api/providers',{method:'POST',body:JSON.stringify({provider:providerId,api_key:key})});
+    if(res.ok){
+      showToast(res.provider+' key '+res.action);
+      els.input.value='';
+      // Invalidate every dropdown surface that caches /api/models so the
+      // newly-configured provider's models show up without a server restart
+      // or page reload (#1539). Server-side invalidate_models_cache() is
+      // already called by api/providers.py:set_provider_key.
+      _refreshModelDropdownsAfterProviderChange();
+      await loadProvidersPanel(); // refresh list
+    }else{
+      showToast(res.error||'Failed to save key');
+      els.saveBtn.disabled=false;
+      els.saveBtn.textContent=t('providers_save');
+    }
+  }catch(e){
+    showToast('Error: '+e.message);
+    els.saveBtn.disabled=false;
+    els.saveBtn.textContent=t('providers_save');
+  }
+}
+
+async function _removeProviderKey(providerId){
+  const els=_providerCardEls.get(providerId);
+  if(!els) return;
+  if(els.saveBtn){els.saveBtn.disabled=true;els.saveBtn.textContent=t('providers_removing');}
+  try{
+    const res=await api('/api/providers/delete',{method:'POST',body:JSON.stringify({provider:providerId})});
+    if(res.ok){
+      showToast(res.provider+' key '+t('providers_key_removed').toLowerCase());
+      // Drop the removed provider from every cached dropdown surface so it
+      // disappears immediately — composer picker, /model slash command,
+      // Settings → Default Model, configured-model badges (#1539).
+      // Without this, a stale list from before the delete keeps offering
+      // the now-removed provider's models until the page is reloaded.
+      _refreshModelDropdownsAfterProviderChange();
+      await loadProvidersPanel(); // refresh list
+    }else{
+      showToast(res.error||'Failed to remove key');
+      if(els.saveBtn){els.saveBtn.disabled=false;els.saveBtn.textContent=t('providers_save');}
+    }
+  }catch(e){
+    // A 403 from /api/providers/delete fires when the CSRF cookie/header
+    // pair has drifted. The server distinguishes three reasons in
+    // api/routes.py:_csrf_rejection_error ("Session expired - reload the
+    // page", "Cross-origin mismatch - check reverse proxy headers", and
+    // the fallback "Cross-origin request rejected"); api()'s catch lifts
+    // that string onto e.message. Pass it through verbatim so the
+    // deployment-shape failure #2572 calls out keeps its actionable hint
+    // instead of being flattened to a single generic toast.
+    if(e&&e.status===403){
+      showToast(e.message||'Session expired. Reload the page and try again.',6000,'error');
+    }else{
+      showToast('Error: '+e.message);
+    }
+    if(els.saveBtn){els.saveBtn.disabled=false;els.saveBtn.textContent=t('providers_save');}
+  }
+}
+
+// Shared dropdown-cache flush invoked after a provider add/remove. The
+// server-side TTL cache is already invalidated by /api/providers and
+// /api/providers/delete (via api/providers.py:set_provider_key); this
+// flushes the JS-side caches so the next render rebuilds from a fresh
+// /api/models response. Wrapped in a try/catch so a UI module that hasn't
+// loaded yet (e.g. during early Settings open) cannot break the save flow.
+function _refreshModelDropdownsAfterProviderChange(){
+  try{
+    if(typeof window._invalidateSlashModelCache==='function'){
+      window._invalidateSlashModelCache();
+    }
+    // Fire-and-forget: don't block the providers panel refresh on a
+    // dropdown rebuild. The composer/Settings dropdowns will catch up
+    // on the very next paint frame.
+    if(typeof window._ensureModelDropdownReady==='function'){
+      window._modelDropdownReady=null;
+      Promise.resolve(window._ensureModelDropdownReady()).catch(()=>{});
+    }else if(typeof populateModelDropdown==='function'){
+      Promise.resolve(populateModelDropdown()).catch(()=>{});
+    }
+  }catch(_e){
+    // Swallow — dropdown refresh is best-effort, providers panel must still update.
+  }
+}
+
+async function _refreshProviderModels(providerId, btn){
+  btn.disabled=true;
+  const orig=btn.innerHTML;
+  btn.innerHTML=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg> ${t('providers_refreshing')||'Refreshing...'}`;
+  try{
+    const res=await api('/api/models/refresh',{method:'POST',body:JSON.stringify({provider:providerId})});
+    if(res.ok){
+      showToast(t('providers_models_refreshed')||('Models refreshed for '+res.provider));
+      _refreshModelDropdownsAfterProviderChange();
+    }else{
+      showToast(res.error||'Failed to refresh models');
+    }
+  }catch(e){
+    showToast(e.status===404?'Refresh not available for this provider.':(e.message||'Failed to refresh models'));
+  }finally{
+    btn.disabled=false;
+    btn.innerHTML=orig;
+  }
+}
 
 let _settingsPasswordEnvLocked=false;
 function _setSettingsAuthButtonsVisible(active){
@@ -7581,7 +8136,13 @@ function loadGatewayStatus(){
       return;
     }
     if(!r.running){
-      card.innerHTML=`<div style="color:var(--muted);font-size:12px;display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block"></span>Gateway not running</div>`;
+      const reason = _gatewayStatusReason(r);
+      const statusLabel = reason === 'gateway_stale_running_state'
+        ? 'Gateway metadata stale'
+        : reason === 'remote_gateway_unreachable'
+          ? 'Gateway endpoint not reachable'
+          : 'Gateway not running';
+      card.innerHTML=`<div style="color:var(--muted);font-size:12px;display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block"></span>${esc(statusLabel)}</div>`;
       return;
     }
     const platformIcons={telegram:'💬',discord:'🎮',slack:'📝',web:'🌐',api:'🔌'};

@@ -27,6 +27,10 @@ from urllib.parse import parse_qs, urlparse
 
 # ── Basic layout ──────────────────────────────────────────────────────────────
 import api.paths as _paths
+from api.plugin_providers import (
+    effective_provider_display_name as _effective_provider_display_name,
+    is_plugin_model_provider as _is_plugin_model_provider,
+)
 
 HOME = _paths.HOME
 _hermes_home_has_webui_state = _paths._hermes_home_has_webui_state
@@ -38,6 +42,24 @@ REPO_ROOT = Path(__file__).parent.parent.resolve()
 # ── Network config (env-overridable) ─────────────────────────────────────────
 HOST = os.getenv("HERMES_WEBUI_HOST", "127.0.0.1")
 PORT = int(os.getenv("HERMES_WEBUI_PORT", "8787"))
+
+
+def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
+    """Read a positive int from the environment, falling back on bad input.
+
+    Used for operator-tunable memory caps (issue #3506) so large installs can
+    shrink the agent/session caches without editing source. A missing, empty,
+    non-numeric, or below-``minimum`` value falls back to ``default`` so a typo
+    can never disable a cache bound entirely.
+    """
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return default
+    return value if value >= minimum else default
 
 # ── TLS/HTTPS config (optional, env-overridable) ────────────────────────────
 TLS_CERT = os.getenv("HERMES_WEBUI_TLS_CERT", "").strip() or None
@@ -184,9 +206,10 @@ def _discover_python(agent_dir: Path) -> str:
             return str(venv_py_win)
 
     # Local .venv inside this repo
-    local_venv = REPO_ROOT / ".venv" / "bin" / "python"
-    if local_venv.exists():
-        return str(local_venv)
+    for subdir, binary in (("bin", "python"), ("Scripts", "python.exe")):
+        local_venv = REPO_ROOT / ".venv" / subdir / binary
+        if local_venv.exists():
+            return str(local_venv)
 
     # Fall back to system python3
     import shutil
@@ -2230,10 +2253,17 @@ def _candidate_supports_reasoning(candidate: str) -> bool:
         return True
     if "step" in token_set or normalized.startswith("step"):
         return True
-    if normalized.startswith(("deepseek-v", "deepseek-r")):
-        return True
-    if len(tokens) >= 2 and tokens[0] == "deepseek" and tokens[1].startswith(("v", "r")):
-        return True
+    if "deepseek" in token_set:
+        # Check the token immediately after "deepseek" for a V-series or R-series
+        # version marker (e.g. "v4", "r1"). This is position-independent so it
+        # handles bare "deepseek-v4-flash" and @custom:name:DeepSeek-V4-Flash
+        # (→ "my-provider-deepseek-v4-flash") equally, while correctly excluding
+        # non-reasoning models like deepseek-chat and deepseek-coder.
+        # Using tokens.index() ensures the provider slug (e.g. "vertex" in
+        # "vertex-deepseek-chat") cannot falsely trigger the version guard.
+        idx = tokens.index("deepseek")
+        if idx + 1 < len(tokens) and tokens[idx + 1].startswith(("v", "r")):
+            return True
     return False
 
 
@@ -3175,6 +3205,12 @@ def invalidate_models_cache():
     # Also delete the disk cache so the next cold build starts fresh.
     # Disk delete is outside the lock — file I/O shouldn't block other readers.
     _delete_models_cache_on_disk()
+    try:
+        from api.plugin_providers import invalidate_plugin_model_provider_cache
+
+        invalidate_plugin_model_provider_cache()
+    except Exception:
+        pass
 
 
 def invalidate_credential_pool_cache(provider_id: str):
@@ -3764,7 +3800,9 @@ def get_available_models() -> dict:
                 # aliases; ``isinstance(_provider_cfg, dict)`` accepts custom
                 # entries that supply their own models/api_key/base_url. (#2399)
                 _is_known_provider = (
-                    _canonical in _PROVIDER_MODELS or _canonical in _PROVIDER_DISPLAY
+                    _canonical in _PROVIDER_MODELS
+                    or _canonical in _PROVIDER_DISPLAY
+                    or _is_plugin_model_provider(_canonical)
                 )
                 _is_provider_config = isinstance(_provider_cfg, dict)
                 if not (_is_known_provider or _is_provider_config):
@@ -4219,7 +4257,7 @@ def get_available_models() -> dict:
                                 group["models_endpoint_error"] = _named_custom_errors[pid]
                             groups.append(group)
                     continue
-                provider_name = _PROVIDER_DISPLAY.get(pid, pid.title())
+                provider_name = _effective_provider_display_name(pid, _PROVIDER_DISPLAY)
                 if pid == "openrouter":
                     # OpenRouter has two model surfaces:
                     #   (1) curated tool-supporting catalog via hermes_cli.models.fetch_openrouter_models()
@@ -4522,7 +4560,11 @@ def get_available_models() -> dict:
                                 "models": models,
                             }
                         )
-                elif pid in _PROVIDER_MODELS or pid in _canonical_to_raw_provider_key:
+                elif (
+                    pid in _PROVIDER_MODELS
+                    or pid in _canonical_to_raw_provider_key
+                    or _is_plugin_model_provider(pid)
+                ):
                     # Look up provider_cfg using the original raw key from
                     # config.yaml so that mixed-case / underscore keys like
                     # ``CLIPpoxy`` or ``snake_case_provider`` still resolve
@@ -4812,7 +4854,10 @@ _INDEX_HTML_PATH = REPO_ROOT / "static" / "index.html"
 
 # ── Thread synchronisation ───────────────────────────────────────────────────
 LOCK = threading.Lock()
-SESSIONS_MAX = 100
+# Max compact Session objects held in the in-memory LRU (issue #3506). Lighter
+# than the agent cache (no live agent runtime), but still bounded and operator-
+# tunable via HERMES_WEBUI_SESSIONS_MAX for installs with hundreds of sessions.
+SESSIONS_MAX = _env_int("HERMES_WEBUI_SESSIONS_MAX", 100)
 CHAT_LOCK = threading.Lock()
 
 
@@ -4933,7 +4978,12 @@ def unregister_active_run(stream_id: str) -> None:
 # SESSION_AGENT_CACHE_LOCK for thread safety in multi-threaded ASGI servers.
 import collections
 SESSION_AGENT_CACHE: collections.OrderedDict = collections.OrderedDict()  # LRU cache
-SESSION_AGENT_CACHE_MAX = 50  # Maximum cached agents (each holds full conversation history)
+# Each cached agent pins a full conversation transcript in RAM, so this cap is
+# the dominant lever on WebUI resident memory (issue #3506). The default is kept
+# deliberately modest -- large/long sessions can each weigh tens of MB, so 50
+# live agents could pin >1 GB on a heavily multiplexed install. Operators can
+# tune it via HERMES_WEBUI_AGENT_CACHE_MAX without editing source.
+SESSION_AGENT_CACHE_MAX = _env_int("HERMES_WEBUI_AGENT_CACHE_MAX", 25)
 SESSION_AGENT_CACHE_LOCK = threading.Lock()
 
 
@@ -4955,11 +5005,14 @@ def _evict_session_agent(session_id: str) -> None:
         return
     should_close = True
     try:
-        from api.session_lifecycle import commit_session_memory, has_uncommitted_work, unregister_agent
+        from api.session_lifecycle import commit_session_memory, discard_session, has_uncommitted_work, unregister_agent
         if has_uncommitted_work(session_id):
             commit_session_memory(session_id, agent=agent, wait=True)
         if not has_uncommitted_work(session_id):
             unregister_agent(session_id)
+            # Bound the lifecycle dict: drop the entry now that the session has
+            # no uncommitted work and the agent handle is gone (issue #3506).
+            discard_session(session_id)
         else:
             should_close = False
     except Exception:

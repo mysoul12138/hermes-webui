@@ -12,7 +12,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 import signal
 import subprocess
 import sys
@@ -37,16 +36,26 @@ from api.config import (
     _custom_provider_slug_from_name,
     _get_label_for_model,
     _models_from_live_provider_ids,
+    _read_live_provider_model_ids,
     _read_visible_codex_cache_model_ids,
-    _load_yaml_config_file,
     _save_yaml_config_file,
     get_config,
     invalidate_models_cache,
-    invalidate_provider_models_cache,
     reload_config,
+)
+from api.plugin_providers import (
+    effective_provider_display_name,
+    effective_provider_env_var,
+    is_plugin_model_provider,
+    plugin_model_provider_ids,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _provider_env_var_for(provider_id: str) -> str | None:
+    """Resolve the API-key env var for a provider (static table + plugin profiles)."""
+    return effective_provider_env_var(provider_id, _PROVIDER_ENV_VAR)
 
 
 def _custom_provider_name_matches(provider_id: str, name: object) -> bool:
@@ -60,173 +69,6 @@ def _custom_provider_name_matches(provider_id: str, name: object) -> bool:
     if slug:
         candidates.add(slug)
     return pid in candidates
-
-
-def _custom_provider_slug(provider_id_or_name: object) -> str:
-    """Return the bare custom-provider slug used under config.providers."""
-    raw = str(provider_id_or_name or "").strip()
-    if raw.lower().startswith("custom:"):
-        raw = raw.split(":", 1)[1]
-    slug = _custom_provider_slug_from_name(raw).removeprefix("custom:")
-    return slug.strip().lower()
-
-
-def _first_non_empty_text(*values: Any) -> str:
-    for value in values:
-        text = str(value or "").strip()
-        if text:
-            return text
-    return ""
-
-
-def _model_entry_id_and_label(item: Any) -> tuple[str, str]:
-    if isinstance(item, dict):
-        # id/model/name are canonical identifiers. label/title are display-only
-        # unless legacy data has no identifier field at all.
-        model_id = _first_non_empty_text(
-            item.get("id"),
-            item.get("model"),
-            item.get("name"),
-            item.get("label"),
-            item.get("title"),
-        )
-        label = _first_non_empty_text(
-            item.get("label"),
-            item.get("title"),
-            item.get("name"),
-            item.get("id"),
-            item.get("model"),
-        )
-        return model_id, label or model_id
-    model_id = _first_non_empty_text(item)
-    return model_id, model_id
-
-
-def _custom_provider_model_ids(value: Any) -> list[str]:
-    """Normalize config/API model lists while preserving first-seen order."""
-    if value in (None, ""):
-        return []
-    raw_items: list[Any]
-    if isinstance(value, dict):
-        raw_items = list(value.keys())
-    elif isinstance(value, list):
-        raw_items = value
-    else:
-        raw_items = [value]
-
-    ids: list[str] = []
-    seen: set[str] = set()
-    for item in raw_items:
-        model_id, _label = _model_entry_id_and_label(item)
-        key = model_id.lower()
-        if model_id and key not in seen:
-            seen.add(key)
-            ids.append(model_id)
-    return ids
-
-
-def _custom_provider_models(value: Any) -> list[dict[str, str]]:
-    return [{"id": model_id, "label": model_id} for model_id in _custom_provider_model_ids(value)]
-
-
-def _dedupe_model_entries(models: Any) -> list[dict[str, str]]:
-    if not isinstance(models, list):
-        return _custom_provider_models(models)
-    normalized: list[dict[str, str]] = []
-    seen: set[str] = set()
-    for item in models:
-        model_id, label = _model_entry_id_and_label(item)
-        key = model_id.lower()
-        if model_id and key not in seen:
-            seen.add(key)
-            normalized.append({"id": model_id, "label": label or model_id})
-    return normalized
-
-
-def _derive_provider_name_from_base_url(base_url: str) -> str:
-    raw = str(base_url or "").strip().rstrip("/")
-    if not raw:
-        return ""
-    host = re.sub(r"^https?://", "", raw, flags=re.IGNORECASE)
-    host = host.split("/", 1)[0].strip().lower()
-    host = re.sub(r"^www\.", "", host)
-    if not host:
-        return ""
-    labels = [part for part in host.split(":", 1)[0].split(".") if part]
-    if not labels:
-        return ""
-    generic = {"api", "chat", "llm", "model", "models", "openai", "v1", "v2", "www"}
-    candidate = ""
-    if len(labels) >= 3 and len(labels[-1]) == 2:
-        candidate = labels[-3]
-    elif len(labels) >= 2:
-        candidate = labels[-2]
-    else:
-        candidate = labels[0]
-    if candidate in generic:
-        for part in reversed(labels[:-1] or labels):
-            if part not in generic:
-                candidate = part
-                break
-    candidate = re.sub(r"[-_]+", " ", candidate)
-    candidate = re.sub(r"\s+", " ", candidate).strip()
-    return candidate.title()
-
-
-def _validate_custom_provider_payload(data: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
-    name = str(data.get("name") or data.get("display_name") or data.get("provider") or "").strip()
-    base_url = str(data.get("base_url") or "").strip().rstrip("/")
-    if not name and base_url:
-        name = _derive_provider_name_from_base_url(base_url)
-    model = str(data.get("default_model") or data.get("model") or "").strip()
-    if not name:
-        raise ValueError("name is required")
-    if not base_url:
-        raise ValueError("base_url is required")
-    if not model:
-        raise ValueError("default_model is required")
-    if "\n" in name or "\r" in name:
-        raise ValueError("name must not contain newline characters")
-    if "\n" in base_url or "\r" in base_url:
-        raise ValueError("base_url must not contain newline characters")
-    if not (base_url.startswith("http://") or base_url.startswith("https://")):
-        raise ValueError("base_url must start with http:// or https://")
-
-    slug = _custom_provider_slug(name)
-    if not slug or not re.match(r"^[a-z0-9][a-z0-9._-]{0,127}$", slug):
-        raise ValueError("name must produce a valid provider slug")
-
-    api_key = data.get("api_key")
-    context_length_raw = data.get("context_length")
-
-    entry: dict[str, Any] = {
-        "name": name,
-        "base_url": base_url,
-        "api_mode": str(data.get("api_mode") or "openai_compatible").strip() or "openai_compatible",
-    }
-    if api_key is not None:
-        key = str(api_key).strip()
-        if "\n" in key or "\r" in key:
-            raise ValueError("api_key must not contain newline characters")
-        if key:
-            entry["api_key"] = key
-    if model:
-        entry["model"] = model
-    models = _custom_provider_model_ids(data.get("models"))
-    if model:
-        models = _custom_provider_model_ids([model, *models])
-    if models:
-        entry["models"] = models
-    if context_length_raw not in (None, ""):
-        try:
-            context_length = int(context_length_raw)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("context_length must be a number") from exc
-        if context_length <= 0:
-            raise ValueError("context_length must be greater than zero")
-        entry["context_length"] = context_length
-
-    return f"custom:{slug}", slug, entry
 
 _OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
 _PROVIDER_QUOTA_TIMEOUT_SECONDS = 3.0
@@ -951,7 +793,7 @@ def _provider_has_shadowed_codex_oauth_value(provider_id: str) -> bool:
     if (provider_id or "").strip().lower() != "openai":
         return False
     values: list[object] = []
-    env_var = _PROVIDER_ENV_VAR.get(provider_id)
+    env_var = _provider_env_var_for(provider_id)
     if env_var:
         env_path = _get_hermes_home() / ".env"
         env_values = _load_env_file(env_path)
@@ -1092,7 +934,7 @@ def _provider_has_key(provider_id: str) -> bool:
     4. ``config.yaml → providers.<id>.api_key``
     5. ``config.yaml → custom_providers[].api_key`` (for custom providers)
     """
-    env_var = _PROVIDER_ENV_VAR.get(provider_id)
+    env_var = _provider_env_var_for(provider_id)
     if env_var:
         env_path = _get_hermes_home() / ".env"
         env_values = _load_env_file(env_path)
@@ -1125,8 +967,6 @@ def _provider_has_key(provider_id: str) -> bool:
     providers_cfg = cfg.get("providers", {})
     if isinstance(providers_cfg, dict):
         provider_cfg = providers_cfg.get(provider_id, {})
-        if (not isinstance(provider_cfg, dict) or not provider_cfg) and provider_id.startswith("custom:"):
-            provider_cfg = providers_cfg.get(_custom_provider_slug(provider_id), {})
         if isinstance(provider_cfg, dict) and str(provider_cfg.get("api_key") or "").strip():
             if _provider_value_counts_as_api_key(provider_id, provider_cfg.get("api_key")):
                 return True
@@ -1144,7 +984,7 @@ def _provider_has_key(provider_id: str) -> bool:
 def _get_provider_api_key(provider_id: str) -> str | None:
     """Return a configured provider API key without exposing it to callers."""
     provider_id = (provider_id or "").strip().lower()
-    env_var = _PROVIDER_ENV_VAR.get(provider_id)
+    env_var = _provider_env_var_for(provider_id)
     if env_var:
         env_path = _get_hermes_home() / ".env"
         env_values = _load_env_file(env_path)
@@ -1173,8 +1013,6 @@ def _get_provider_api_key(provider_id: str) -> str | None:
     providers_cfg = cfg.get("providers", {})
     if isinstance(providers_cfg, dict):
         provider_cfg = providers_cfg.get(provider_id, {})
-        if (not isinstance(provider_cfg, dict) or not provider_cfg) and provider_id.startswith("custom:"):
-            provider_cfg = providers_cfg.get(_custom_provider_slug(provider_id), {})
         if isinstance(provider_cfg, dict):
             provider_key = str(provider_cfg.get("api_key") or "").strip()
             if _provider_value_counts_as_api_key(provider_id, provider_key):
@@ -1302,7 +1140,7 @@ def _account_usage_subprocess_env(home: Path, provider: str, api_key: str | None
         if value:
             env[key] = value
 
-    env_var = _PROVIDER_ENV_VAR.get((provider or "").strip().lower())
+    env_var = _provider_env_var_for((provider or "").strip().lower())
     if env_var and api_key:
         env[env_var] = api_key
 
@@ -1925,6 +1763,7 @@ def get_providers() -> dict[str, Any]:
 
     # Collect all known provider IDs from multiple sources
     known_ids = set(_PROVIDER_DISPLAY.keys()) | set(_PROVIDER_MODELS.keys())
+    known_ids.update(plugin_model_provider_ids())
 
     # Also detect providers from config.yaml providers section
     cfg = get_config()
@@ -1936,9 +1775,21 @@ def get_providers() -> dict[str, Any]:
     known_ids.update(_OAUTH_PROVIDERS)
 
     for pid in sorted(known_ids):
-        display_name = _PROVIDER_DISPLAY.get(pid, pid.replace("-", " ").title())
+        display_name = effective_provider_display_name(pid, _PROVIDER_DISPLAY)
         is_oauth = _provider_is_oauth(pid)
         has_key = _provider_has_key(pid)
+        plugin_auth_status: dict[str, Any] | None = None
+        if not has_key and is_plugin_model_provider(pid):
+            try:
+                from hermes_cli.auth import get_auth_status as _gas_plugin
+                _plugin_status = _gas_plugin(pid)
+                if isinstance(_plugin_status, dict) and (
+                    _plugin_status.get("logged_in") or _plugin_status.get("configured")
+                ):
+                    has_key = True
+                    plugin_auth_status = _plugin_status
+            except Exception:
+                logger.debug("Plugin provider auth check failed for %s", pid, exc_info=True)
 
         # Determine key source
         key_source = "none"
@@ -1970,7 +1821,7 @@ def get_providers() -> dict[str, Any]:
                 logger.debug("hermes_cli auth check failed for %s", pid, exc_info=True)
                 # keep has_key from _provider_has_key()
         elif has_key:
-            env_var = _PROVIDER_ENV_VAR.get(pid)
+            env_var = _provider_env_var_for(pid)
             if env_var:
                 env_path = _get_hermes_home() / ".env"
                 env_values = _load_env_file(env_path)
@@ -1994,19 +1845,29 @@ def get_providers() -> dict[str, Any]:
                             aliased = True
                             break
                     if not aliased:
-                        key_source = "config_yaml"
+                        _plugin_ks = (
+                            str(plugin_auth_status.get("key_source") or "").strip()
+                            if isinstance(plugin_auth_status, dict)
+                            else ""
+                        )
+                        key_source = _plugin_ks or "config_yaml"
             else:
-                key_source = "config_yaml"
-        elif pid not in _PROVIDER_ENV_VAR:
+                _plugin_ks = (
+                    str(plugin_auth_status.get("key_source") or "").strip()
+                    if isinstance(plugin_auth_status, dict)
+                    else ""
+                )
+                key_source = _plugin_ks or "config_yaml"
+        elif not _provider_env_var_for(pid):
             # Fallback: provider is not a known API-key provider and not in
             # the hardcoded _OAUTH_PROVIDERS set.  It may be a custom or
             # newly-added OAuth provider (e.g. Anthropic connected via OAuth).
             # Check live auth status so the Providers tab agrees with the
             # model picker (#1212).
             #
-            # IMPORTANT: we skip providers in _PROVIDER_ENV_VAR because they
-            # are pure API-key providers — calling get_auth_status() for every
-            # unconfigured API-key provider would add unnecessary latency
+            # IMPORTANT: we skip providers with a known API-key env var because
+            # they are pure API-key providers — calling get_auth_status() for
+            # every unconfigured API-key provider would add unnecessary latency
             # (network round-trip per provider) on the Settings page.
             # Validate pid looks like a real provider before probing
             import re as _re
@@ -2028,19 +1889,90 @@ def get_providers() -> dict[str, Any]:
 
         models = list(_PROVIDER_MODELS.get(pid, []))
         models_total = len(models)
-        # /api/providers is a settings metadata endpoint and must stay fast.
-        # Do not call hermes_cli.provider_model_ids() here: that path may hit
-        # remote APIs or local model servers. Live catalogs are fetched on demand
-        # by /api/models/live and /api/models/refresh.
+        # OpenAI Codex account catalogs drift independently from WebUI releases.
+        # The model picker already prefers hermes_cli + Codex local cache for
+        # this provider (the agent's `provider_model_ids("openai-codex")` filters
+        # IDs with `supported_in_api: false`, but Codex CLI still surfaces some
+        # of those — notably `gpt-5.3-codex-spark` from #1680 — in its picker).
+        # Merge both sources here so the providers card matches the picker
+        # exactly. Static entries remain the offline fallback when live
+        # discovery and the local Codex cache are both unavailable. (#1807
+        # follow-up to v0.51.19 #1812.)
         if pid == "openai-codex":
-            live_ids: list[str] = []
+            live_ids = _read_live_provider_model_ids("openai-codex")
+            live_id_set = set(live_ids)
             for mid in _read_visible_codex_cache_model_ids():
-                if mid not in live_ids:
+                if mid not in live_id_set:
+                    live_id_set.add(mid)
                     live_ids.append(mid)
             live_models = _models_from_live_provider_ids(pid, live_ids)
             if live_models:
                 models = live_models
                 models_total = len(models)
+        if pid == "xai-oauth":
+            live_models = _models_from_live_provider_ids(
+                pid,
+                _read_live_provider_model_ids("xai-oauth"),
+            )
+            if live_models:
+                models = live_models
+                models_total = len(models)
+        # Nous Portal: prefer the live catalog so the providers card matches
+        # the dropdown picker (#1538). Same fallback shape as the static-only
+        # case below — when hermes_cli is unavailable or its lookup raises,
+        # we keep the four-entry curated list.
+        #
+        # On large-tier accounts (#1567 reporter Deor saw 396 entries), we
+        # render the same featured subset the picker uses so the providers
+        # card body doesn't become a 396-pill wall. The full count is still
+        # reported via models_total — surfaced in the header line as
+        # "396 models · OAuth" by static/panels.js — so the user knows the
+        # complete catalog is reachable (via /model autocomplete or a future
+        # "show all" disclosure if added).
+        if pid == "nous":
+            try:
+                from hermes_cli.models import provider_model_ids as _provider_model_ids
+
+                live_ids = _provider_model_ids("nous") or []
+                if live_ids:
+                    # Lazy-import to avoid circular dep with api.config.
+                    from api.config import _format_nous_label, _build_nous_featured_set
+
+                    featured_ids, _extras = _build_nous_featured_set(live_ids)
+                    models = [
+                        {"id": f"@nous:{mid}", "label": _format_nous_label(mid)}
+                        for mid in featured_ids
+                    ]
+                    models_total = len(live_ids)
+            except Exception:
+                logger.debug("Failed to load Nous Portal models from hermes_cli")
+        # LM Studio: fetch live locally-loaded models so the providers card
+        # matches what's actually available on the user's server (#WebUI).
+        if pid == "lmstudio":
+            try:
+                from hermes_cli.models import provider_model_ids as _pmi
+
+                lm_live = _pmi("lmstudio") or []
+                if lm_live:
+                    models = [{"id": mid, "label": mid} for mid in lm_live]
+                    models_total = len(models)
+            except Exception:
+                logger.debug("Failed to load LM Studio models from hermes_cli")
+        if is_plugin_model_provider(pid):
+            try:
+                live_models = _models_from_live_provider_ids(
+                    pid,
+                    _read_live_provider_model_ids(pid),
+                )
+                if live_models:
+                    models = live_models
+                    models_total = len(models)
+            except Exception:
+                logger.debug(
+                    "Failed to load plugin model-provider catalog for %s",
+                    pid,
+                    exc_info=True,
+                )
         # Also include models from config.yaml providers section
         if isinstance(providers_cfg, dict):
             provider_cfg = providers_cfg.get(pid, {})
@@ -2057,15 +1989,14 @@ def get_providers() -> dict[str, Any]:
                 # surfaced in the curated featured slice).
                 if pid != "nous":
                     models_total = len(models)
-        models = _dedupe_model_entries(models)
-        if pid != "nous":
-            models_total = len(models)
 
+        _is_plugin = is_plugin_model_provider(pid)
         providers.append({
             "id": pid,
             "display_name": display_name,
             "has_key": has_key,
-            "configurable": not is_oauth and pid in _PROVIDER_ENV_VAR,
+            "configurable": not is_oauth and bool(_provider_env_var_for(pid)),
+            "is_plugin_provider": _is_plugin,
             "is_oauth": is_oauth,
             "key_source": key_source,
             "auth_error": auth_error,
@@ -2079,51 +2010,6 @@ def get_providers() -> dict[str, Any]:
             # len(models) and the frontend behaves identically to before.
             "models_total": models_total,
         })
-
-    # Config-first custom providers.  New WebUI writes use
-    # providers.<slug> while older Hermes configs may still have
-    # custom_providers[] entries; both are surfaced as editable custom cards.
-    if isinstance(providers_cfg, dict):
-        for slug, provider_cfg in providers_cfg.items():
-            if not isinstance(provider_cfg, dict):
-                continue
-            raw_slug = _custom_provider_slug(slug)
-            if not raw_slug:
-                continue
-            custom_id = f"custom:{raw_slug}"
-            display_name = str(provider_cfg.get("name") or slug).strip() or raw_slug
-            base_url = str(provider_cfg.get("base_url") or "").strip()
-            if not base_url and not provider_cfg.get("api_key"):
-                continue
-
-            cfg_models = _custom_provider_models(provider_cfg.get("models"))
-            if not cfg_models:
-                cfg_models = _custom_provider_models(provider_cfg.get("model"))
-
-            existing_idx = next(
-                (idx for idx, provider in enumerate(providers) if provider.get("id") == custom_id),
-                None,
-            )
-            item = {
-                "id": custom_id,
-                "slug": raw_slug,
-                "display_name": display_name,
-                "name": display_name,
-                "base_url": base_url,
-                "default_model": str(provider_cfg.get("model") or "").strip(),
-                "context_length": provider_cfg.get("context_length"),
-                "has_key": _provider_has_key(custom_id),
-                "configurable": False,
-                "editable": True,
-                "is_custom": True,
-                "key_source": "config_yaml" if _provider_has_key(custom_id) else "none",
-                "models": cfg_models,
-                "models_total": len(cfg_models),
-            }
-            if existing_idx is None:
-                providers.append(item)
-            else:
-                providers[existing_idx].update(item)
 
     # Scan custom_providers from config.yaml (e.g. glmcode, timicc)
     custom_providers_cfg = cfg.get("custom_providers", [])
@@ -2139,12 +2025,12 @@ def get_providers() -> dict[str, Any]:
                     cp_name,
                 )
                 continue
-            if any(p.get("id") == cp_id for p in providers):
-                continue
             # Collect models from `models` list or `model` single
-            cp_models = _custom_provider_models(cp.get("models"))
-            if not cp_models:
-                cp_models = _custom_provider_models(cp.get("model"))
+            cp_models = []
+            if isinstance(cp.get("models"), list):
+                cp_models = [{"id": str(m), "label": str(m)} for m in cp["models"]]
+            elif cp.get("model"):
+                cp_models = [{"id": cp["model"], "label": cp["model"]}]
             # Check for env var reference (${VAR_NAME} pattern)
             cp_api_key = str(cp.get("api_key") or "")
             cp_has_key = bool(cp_api_key.strip())
@@ -2155,13 +2041,8 @@ def get_providers() -> dict[str, Any]:
             providers.append({
                 "id": cp_id,
                 "display_name": cp_name,
-                "name": cp_name,
-                "base_url": str(cp.get("base_url") or "").strip(),
-                "default_model": str(cp.get("model") or "").strip(),
-                "context_length": cp.get("context_length"),
                 "has_key": cp_has_key,
                 "configurable": False,  # custom providers managed via config.yaml
-                "editable": True,
                 "is_custom": True,
                 "key_source": "config_yaml" if cp_has_key else "none",
                 "models": cp_models,
@@ -2192,139 +2073,6 @@ def get_providers() -> dict[str, Any]:
     }
 
 
-def upsert_custom_provider_config(data: dict[str, Any]) -> dict[str, Any]:
-    """Create or update a custom provider in config.yaml providers.<slug>."""
-    from api.config import _cfg_lock
-    import api.config as _config
-
-    try:
-        provider_id, slug, entry = _validate_custom_provider_payload(data)
-    except ValueError as exc:
-        return {"ok": False, "error": str(exc)}
-
-    config_path = _config._get_config_path()
-    try:
-        with _cfg_lock:
-            config_data = _load_yaml_config_file(config_path)
-            if not isinstance(config_data, dict):
-                config_data = {}
-
-            providers_cfg = config_data.get("providers")
-            if not isinstance(providers_cfg, dict):
-                providers_cfg = {}
-                config_data["providers"] = providers_cfg
-
-            original_slug = _custom_provider_slug(data.get("provider"))
-            legacy_conflict_ids = {provider_id}
-            if original_slug:
-                legacy_conflict_ids.add(f"custom:{original_slug}")
-            previous = providers_cfg.get(slug)
-            if not isinstance(previous, dict) and original_slug and original_slug != slug:
-                previous = providers_cfg.get(original_slug)
-            if isinstance(previous, dict):
-                merged = dict(previous)
-                if "api_key" not in entry and previous.get("api_key"):
-                    merged["api_key"] = previous.get("api_key")
-                merged.update(entry)
-            else:
-                merged = dict(entry)
-            if original_slug and original_slug != slug:
-                providers_cfg.pop(original_slug, None)
-            providers_cfg[slug] = merged
-
-            custom_entries = config_data.get("custom_providers")
-            if isinstance(custom_entries, list):
-                filtered = [
-                    cp for cp in custom_entries
-                    if not (
-                        isinstance(cp, dict)
-                        and any(_custom_provider_name_matches(conflict_id, cp.get("name")) for conflict_id in legacy_conflict_ids)
-                    )
-                ]
-                if filtered:
-                    config_data["custom_providers"] = filtered
-                else:
-                    config_data.pop("custom_providers", None)
-
-            _save_yaml_config_file(config_path, config_data)
-        reload_config()
-        invalidate_provider_models_cache(provider_id)
-        return {
-            "ok": True,
-            "provider": provider_id,
-            "slug": slug,
-            "display_name": entry["name"],
-            "action": "updated" if isinstance(previous, dict) else "created",
-        }
-    except Exception as exc:
-        logger.exception("Failed to save custom provider %s", provider_id)
-        return {"ok": False, "error": f"Failed to save custom provider: {exc}"}
-
-
-def delete_custom_provider_config(provider_id: str) -> dict[str, Any]:
-    """Delete a custom provider config without touching unrelated providers."""
-    from api.config import _cfg_lock
-    import api.config as _config
-
-    slug = _custom_provider_slug(provider_id)
-    if not slug:
-        return {"ok": False, "error": "provider is required"}
-    custom_id = f"custom:{slug}"
-    config_path = _config._get_config_path()
-
-    try:
-        changed = False
-        with _cfg_lock:
-            config_data = _load_yaml_config_file(config_path)
-            if not isinstance(config_data, dict):
-                config_data = {}
-
-            providers_cfg = config_data.get("providers")
-            if isinstance(providers_cfg, dict) and slug in providers_cfg:
-                del providers_cfg[slug]
-                changed = True
-                if not providers_cfg:
-                    config_data.pop("providers", None)
-
-            custom_entries = config_data.get("custom_providers")
-            if isinstance(custom_entries, list):
-                filtered = [
-                    cp for cp in custom_entries
-                    if not (isinstance(cp, dict) and _custom_provider_name_matches(custom_id, cp.get("name")))
-                ]
-                if len(filtered) != len(custom_entries):
-                    changed = True
-                    if filtered:
-                        config_data["custom_providers"] = filtered
-                    else:
-                        config_data.pop("custom_providers", None)
-
-            model_cfg = config_data.get("model")
-            if isinstance(model_cfg, dict):
-                active_provider = str(model_cfg.get("provider") or "").strip().lower()
-                if active_provider in {custom_id, slug}:
-                    model_cfg.pop("provider", None)
-                    model_cfg.pop("base_url", None)
-                    model_cfg.pop("api_key", None)
-                    changed = True
-
-            if changed:
-                _save_yaml_config_file(config_path, config_data)
-
-        if changed:
-            reload_config()
-            invalidate_provider_models_cache(custom_id)
-        return {
-            "ok": True,
-            "provider": custom_id,
-            "slug": slug,
-            "action": "removed",
-        }
-    except Exception as exc:
-        logger.exception("Failed to delete custom provider %s", custom_id)
-        return {"ok": False, "error": f"Failed to delete custom provider: {exc}"}
-
-
 def set_provider_key(provider_id: str, api_key: str | None) -> dict[str, Any]:
     """Set or update the API key for a provider.
 
@@ -2345,11 +2093,11 @@ def set_provider_key(provider_id: str, api_key: str | None) -> dict[str, Any]:
                      f"Use `hermes model` in the terminal to configure it.",
         }
 
-    env_var = _PROVIDER_ENV_VAR.get(provider_id)
+    env_var = _provider_env_var_for(provider_id)
     if not env_var:
         return {
             "ok": False,
-            "error": f"Cannot configure API key for '{_PROVIDER_DISPLAY.get(provider_id, provider_id)}'. "
+            "error": f"Cannot configure API key for '{effective_provider_display_name(provider_id, _PROVIDER_DISPLAY)}'. "
                      f"This provider does not have a known env var mapping.",
         }
 
