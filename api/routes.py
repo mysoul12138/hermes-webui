@@ -5158,16 +5158,7 @@ def handle_get(handler, parsed) -> bool:
                         _threshold_tokens = 0
                     _persisted_cl = _fb_cl
             _session_tool_calls = getattr(s, "tool_calls", []) if load_messages else []
-            if (
-                load_messages
-                and msg_limit is not None
-                and _messages_include_tool_metadata(_truncated_msgs)
-            ):
-                # The browser ignores session-level tool_calls when the returned
-                # messages already carry per-message tool metadata. Avoid sending
-                # the full historical list with a small tail window.
-                _session_tool_calls = []
-            elif _windowed_messages:
+            if _windowed_messages:
                 _session_tool_calls = _tool_calls_for_message_window(
                     _session_tool_calls,
                     _messages_offset,
