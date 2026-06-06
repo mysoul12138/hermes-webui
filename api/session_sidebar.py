@@ -3,6 +3,11 @@ Session sidebar helpers — extracted from api/routes.py.
 
 All sidebar filtering, dedup, normalization, and merge logic for /api/sessions.
 Moved here to decouple session_routes.py from api/routes.py entirely.
+
+NOTE: As of v0.51.271, upstream inlined the /api/sessions handler into
+routes.py. This module is no longer called from routes.py or session_routes.py.
+It is retained only for test compatibility. Do NOT re-add imports to routes.py.
+"""
 """
 
 import logging

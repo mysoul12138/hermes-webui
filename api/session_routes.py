@@ -2,6 +2,13 @@
 Session routes for /api/sessions endpoint.
 
 Extracted from api/routes.py to reduce merge conflicts with upstream.
+
+NOTE: As of v0.51.271, upstream inlined the /api/sessions handler into
+routes.py (with RequestDiagnostics, orphan prune, profile scoping, etc.).
+This module is no longer called from routes.py. It is retained only for
+test compatibility (test_issue2157_sessions_list_stale_stream_state.py).
+Do NOT re-add the import to routes.py — the upstream inline version is
+more complete.
 """
 
 import logging
