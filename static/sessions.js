@@ -170,6 +170,7 @@ function _clearComposerDraft(sid) {
 const SESSION_VIEWED_COUNTS_KEY = 'hermes-session-viewed-counts';
 const SESSION_COMPLETION_UNREAD_KEY = 'hermes-session-completion-unread';
 const SESSION_OBSERVED_STREAMING_KEY = 'hermes-session-observed-streaming';
+const SESSION_MANUAL_STATUS_KEY = 'hermes-session-manual-status';
 let _sessionViewedCounts = null;
 let _sessionCompletionUnread = null;
 let _sessionObservedStreaming = null;
@@ -351,6 +352,43 @@ function _isSessionEffectivelyStreaming(s) {
 
 function _isServerIdleSessionRow(s) {
   return Boolean(s && s.session_id && !s.is_streaming && !s.active_stream_id && !s.pending_user_message);
+}
+
+// ── Manual session status (Todo / In Progress / Done) ─────────────────────
+const _SESSION_STATUS_VALUES = ['todo', 'in-progress', 'done'];
+
+function _getSessionManualStatuses() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SESSION_MANUAL_STATUS_KEY) || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (_e) { return {}; }
+}
+
+function getSessionManualStatus(sid) {
+  if (!sid) return null;
+  const val = _getSessionManualStatuses()[sid];
+  return _SESSION_STATUS_VALUES.includes(val) ? val : null;
+}
+
+function setSessionManualStatus(sid, status) {
+  if (!sid) return;
+  const map = _getSessionManualStatuses();
+  if (status && _SESSION_STATUS_VALUES.includes(status)) {
+    map[sid] = status;
+  } else {
+    delete map[sid];
+  }
+  try { localStorage.setItem(SESSION_MANUAL_STATUS_KEY, JSON.stringify(map)); } catch (_e) {}
+  renderSessionListFromCache();
+}
+
+function _cycleSessionManualStatus(session) {
+  const current = getSessionManualStatus(session.session_id);
+  const idx = _SESSION_STATUS_VALUES.indexOf(current);
+  const next = idx === -1 ? _SESSION_STATUS_VALUES[0]
+    : idx === _SESSION_STATUS_VALUES.length - 1 ? null
+    : _SESSION_STATUS_VALUES[idx + 1];
+  setSessionManualStatus(session.session_id, next);
 }
 
 function _reconcileActiveSessionIdleStateFromList(serverRows) {
@@ -1014,6 +1052,7 @@ async function loadSession(sid){
   if(_s&&typeof _syncCtxIndicator==='function'){
     const u=S.lastUsage||{};
     const _pick=(latest,stored,dflt=0)=>latest!=null?latest:(stored!=null?stored:dflt);
+    const _pickPositive=(latest,stored,dflt=0)=>Number(latest)>0?latest:(Number(stored)>0?stored:dflt);
     _syncCtxIndicator({
       input_tokens:      _pick(u.input_tokens,      _s.input_tokens),
       output_tokens:     _pick(u.output_tokens,     _s.output_tokens),
@@ -1021,7 +1060,7 @@ async function loadSession(sid){
       cache_read_tokens: _pick(u.cache_read_tokens, _s.cache_read_tokens),
       cache_write_tokens:_pick(u.cache_write_tokens,_s.cache_write_tokens),
       cache_hit_percent: _pick(u.cache_hit_percent, _s.cache_hit_percent, null),
-      context_length:    _pick(_s.context_length,    u.context_length),
+      context_length:    _pickPositive(u.context_length, _s.context_length),
       last_prompt_tokens:_pick(u.last_prompt_tokens,_s.last_prompt_tokens),
       threshold_tokens:  _pick(_s.threshold_tokens,  u.threshold_tokens),
     });
@@ -1057,13 +1096,15 @@ const _HANDOFF_THRESHOLD = 10;  // conversation rounds
 const _HANDOFF_STORAGE_PREFIX = 'handoff:';
 const _HANDOFF_SUFFIX_DISMISSED_AT = 'dismissed_at';
 const _HANDOFF_SUFFIX_SUMMARY_HANDLED_AT = 'summary_handled_at';
-const _MESSAGING_RAW_SOURCES = new Set(['weixin', 'telegram', 'discord', 'slack', 'email']);
+const _MESSAGING_RAW_SOURCES = new Set(['weixin', 'telegram', 'discord', 'slack', 'email', 'wecom', 'wecom_callback']);
 const _MESSAGING_SOURCE_LABELS = {
   weixin: 'WeChat',
   telegram: 'Telegram',
   discord: 'Discord',
   slack: 'Slack',
   email: 'Email',
+  wecom: 'WeCom',
+  wecom_callback: 'WeCom Callback',
 };
 
 function _isMessagingSession(session) {
@@ -1451,7 +1492,8 @@ function _resolveSessionModelForDisplaySoon(sid){
       if(!model||!S.session||S.session.session_id!==sid) return;
       S.session.model=model;
       S.session.model_provider=provider||null;
-      S.session.context_length=data.session.context_length||0;
+      const resolvedContextLength=data.session.context_length||S.session.context_length||0;
+      S.session.context_length=resolvedContextLength;
       S.session.threshold_tokens=data.session.threshold_tokens||0;
       S.session.last_prompt_tokens=data.session.last_prompt_tokens||0;
       S.session._modelResolutionDeferred=false;
@@ -1466,7 +1508,7 @@ function _resolveSessionModelForDisplaySoon(sid){
           cache_read_tokens:_pick(u.cache_read_tokens,S.session.cache_read_tokens),
           cache_write_tokens:_pick(u.cache_write_tokens,S.session.cache_write_tokens),
           cache_hit_percent:_pick(u.cache_hit_percent,S.session.cache_hit_percent,null),
-          context_length:data.session.context_length||0,
+          context_length:resolvedContextLength||u.context_length||0,
           last_prompt_tokens:_pick(u.last_prompt_tokens,S.session.last_prompt_tokens),
           threshold_tokens:data.session.threshold_tokens||0,
         });
@@ -2613,6 +2655,22 @@ function _openSessionActionMenu(session, anchorEl){
         }
       }
     ));
+  }
+  // Manual status picker (before danger actions)
+  if (!isExternalSession) {
+    const currentStatus = getSessionManualStatus(session.session_id);
+    for (const status of _SESSION_STATUS_VALUES) {
+      menu.appendChild(_buildSessionAction(
+        t('session_status_' + status.replace(/-/g,'_')) || status,
+        '',
+        '',
+        () => {
+          closeSessionActionMenu();
+          setSessionManualStatus(session.session_id, currentStatus === status ? null : status);
+        },
+        currentStatus === status ? 'is-active' : ''
+      ));
+    }
   }
   if(!isExternalSession){
     if(session.worktree_path){
@@ -4112,6 +4170,15 @@ function _resyncSessionVirtualWindowAfterRender(list, expectedScrollTop, virtual
   });
 }
 
+// Top-level so BOTH the sidebar visibility predicate (_sidebarRowHasVisibleMessages,
+// reached via renderSessionListFromCache -> _partitionSidebarSessionRows) and the
+// per-row renderer (_renderOneSession, nested in renderSessionListFromCache) can call
+// it. It was previously declared INSIDE renderSessionListFromCache and relied on
+// function hoisting — but hoisting is scoped to the enclosing function, so the
+// top-level _sidebarRowHasVisibleMessages threw "ReferenceError: _sessionAttentionState
+// is not defined" on every cache render, crashing the sidebar (#3696, regressed in
+// #3672 when _sidebarRowHasVisibleMessages was extracted to top level). Pure function
+// (only its arg `s` plus the i18n global `t`), so hoisting it is safe.
 function _sessionAttentionState(s){
   const attention=s&&s.attention&&typeof s.attention==='object'?s.attention:null;
   if(!attention||!attention.kind||!Number.isFinite(Number(attention.count))||Number(attention.count)<=0)return null;
@@ -4586,6 +4653,15 @@ function renderSessionListFromCache(){
         dot.title=proj.name;
         titleRow.appendChild(dot);
       }
+    }
+    const manualStatus = getSessionManualStatus(s.session_id);
+    if (manualStatus) {
+      const statusBadge = document.createElement('span');
+      statusBadge.className = 'session-manual-status session-manual-status--' + manualStatus;
+      statusBadge.textContent = t('session_status_' + manualStatus.replace(/-/g,'_')) || manualStatus;
+      statusBadge.title = t('session_status_click_to_change') || 'Click to change status';
+      statusBadge.onclick = (e) => { e.stopPropagation(); _cycleSessionManualStatus(s); };
+      titleRow.appendChild(statusBadge);
     }
     const density=(window._sidebarDensity==='detailed'?'detailed':'compact');
     const showLineageMetadata=density==='detailed';

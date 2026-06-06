@@ -307,9 +307,11 @@ let _messageRenderWindowSize=MESSAGE_RENDER_WINDOW_DEFAULT;
 // Cached visWithIdx array — invalidated when S.messages.length changes.
 let _visWithIdxCache=null;
 let _visWithIdxCacheLen=0;
+let _visWithIdxCacheSrc=null;  // S.messages reference — detects wholesale replacement with same length
 function clearVisibleMessageRowCache(){
   _visWithIdxCache=null;
   _visWithIdxCacheLen=0;
+  _visWithIdxCacheSrc=null;
 }
 function _resetMessageRenderWindow(sid){
   _messageRenderWindowSid=sid||null;
@@ -355,9 +357,10 @@ function _messageRenderableMessageCount(){
   for(const m of (S.messages||[])){
     if(!m||!m.role||m.role==='tool') continue;
     if(_isContextCompactionMessage(m)||_isPreservedCompressionTaskListMessage(m)) continue;
+    if(_isRecoveryControlMessage(m)) continue;
     const hasTc=Array.isArray(m.tool_calls)&&m.tool_calls.length>0;
     const hasTu=Array.isArray(m.content)&&m.content.some(p=>p&&p.type==='tool_use');
-    if(msgContent(m)||m.attachments?.length||(m.role==='assistant'&&(hasTc||hasTu||_messageHasReasoningPayload(m)))) count++;
+    if(msgContent(m)||m._statusCard||m.attachments?.length||(m.role==='assistant'&&(hasTc||hasTu||_messageHasReasoningPayload(m)||_assistantMessageHasVisibleContent(m)))) count++;
   }
   return count;
 }
@@ -416,9 +419,18 @@ async function jumpToSessionStart(){
   _messageUserUnpinned=true;
   _programmaticScroll=true;
   try{
-    if(typeof _ensureAllMessagesLoaded==='function') await _ensureAllMessagesLoaded();
+    // During active streaming, skip full message load — API response won't
+    // include live messages from the current turn, and replacing S.messages
+    // would lose user/assistant/tool messages.
+    if(!(S.busy||S.activeStreamId)){
+      if(typeof _ensureAllMessagesLoaded==='function') await _ensureAllMessagesLoaded();
+    }
     _messageRenderWindowSize=Math.max(_currentMessageRenderWindowSize(),_messageRenderableMessageCount());
-    renderMessages({ preserveScroll:true });
+    // During streaming, skip renderMessages — it rebuilds the DOM but tool card
+    // insertion is blocked by !S.busy, losing Activity until "done" fires.
+    if(!(S.busy||S.activeStreamId)){
+      renderMessages({ preserveScroll:true });
+    }
     requestAnimationFrame(()=>{
       container.scrollTop=0;
       _updateSessionStartJumpButton();
@@ -2753,6 +2765,30 @@ function _syncMobileCtxDisplay(state){
   _setCtxCompressButton(compressBtn,state.compressText||'');
 }
 
+function _mergeUsageForCtxIndicator(latest, fallback){
+  const latestObj=(latest&&typeof latest==='object')?latest:{};
+  const fallbackObj=(fallback&&typeof fallback==='object')?fallback:{};
+  const merged={...latestObj};
+  for(const field of [
+    'input_tokens','output_tokens','estimated_cost',
+    'cache_read_tokens','cache_write_tokens','cache_hit_percent',
+    'turn_cache_hit_percent','duration_seconds','tps','gateway_routing',
+  ]){
+    if(merged[field]==null&&fallbackObj[field]!=null){
+      merged[field]=fallbackObj[field];
+    }
+  }
+  if(!(Number(latestObj.context_length)>0)&&Number(fallbackObj.context_length)>0){
+    merged.context_length=fallbackObj.context_length;
+  }
+  for(const field of ['threshold_tokens','last_prompt_tokens']){
+    if(latestObj[field]==null&&fallbackObj[field]!=null){
+      merged[field]=fallbackObj[field];
+    }
+  }
+  return merged;
+}
+
 // Context usage indicator in composer footer
 function _syncCtxIndicator(usage){
   const wrap=$('ctxIndicatorWrap');
@@ -3798,6 +3834,7 @@ function setComposerStatus(t){
 }
 
 let _composerLockState=null;
+let _compressionPlaceholderSaved=null;
 
 function lockComposerForClarify(placeholderText){
   const input=$('msg');
@@ -3869,6 +3906,7 @@ function getComposerPrimaryAction(){
   if(!isBusy) return hasContent?'send':'disabled';
   if(!hasContent){
     if(S.activeStreamId&&typeof cancelStream==='function') return 'stop';
+    if(compressionRunning) return 'queue';
     return 'disabled';
   }
   const explicitAction=_getExplicitBusyCommandAction(msg&&msg.value);
@@ -3913,10 +3951,10 @@ function updateSendBtn(){
   let _btnTitle;
   if(action==='disabled'){
     const _dmsg=$('msg');
-    const _dcompr=typeof isCompressionUiRunning==='function'&&isCompressionUiRunning();
     if(_dmsg&&_dmsg.disabled) _btnTitle=_tt('composer_disabled_clarify','Respond to the clarification request');
-    else if(_dcompr) _btnTitle=_tt('composer_disabled_compression','Waiting for compression to finish');
     else _btnTitle=_tt('composer_disabled_empty','Type a message to send');
+  }else if(action==='queue'&&typeof isCompressionUiRunning==='function'&&isCompressionUiRunning()){
+    _btnTitle=_tt('composer_compression_will_queue','Type a message — it will queue and send after compression');
   }else{
     const _tmap={send:'Send message',queue:'Queue message',interrupt:'Interrupt and send',steer:'Steer current response',stop:'Stop generation'};
     _btnTitle=_tt('composer_'+action,_tmap[action]||'Send message');
@@ -5608,6 +5646,8 @@ async function applyUpdates(){
     return;
   }
   try{
+    const stashConflictMessages=[];
+    const baselineServerIdentity = await _readHealthServerIdentity();
     for(const target of targets){
       const res=await api('/api/updates/apply',{method:'POST',body:JSON.stringify({target}),timeoutMs:120000});
       if(!res.ok){
@@ -5615,11 +5655,16 @@ async function applyUpdates(){
         resetApplyButton(0);
         return;
       }
+      if(res.stash_conflict){
+        stashConflictMessages.push('Update applied ('+target+'): '+(res.message||'Local changes were preserved in git stash.'));
+        if(errEl){errEl.textContent=stashConflictMessages.join('\n\n');errEl.style.display='block';}
+      }
     }
-    showToast('Update applied — restarting…');
+    const stashConflictMessage=stashConflictMessages.join('\n\n');
+    showToast(stashConflictMessage||'Update applied — restarting…',stashConflictMessages.length?10000:undefined,stashConflictMessages.length?'warning':undefined);
     sessionStorage.removeItem('hermes-update-checked');
     sessionStorage.removeItem('hermes-update-dismissed');
-    _waitForServerThenReload();
+    _waitForServerThenReload({baselineServerIdentity});
   }catch(e){
     const msg=_formatUpdateApplyExceptionMessage(e);
     if(errEl){errEl.textContent=msg;errEl.style.display='block';}
@@ -5643,6 +5688,26 @@ function _showUpdateError(target,res){
     forceBtn.style.display='inline-block';
   }
 }
+function _normalizeHealthServerIdentity(rawIdentity){
+  if(rawIdentity===undefined||rawIdentity===null) return null;
+  if(typeof rawIdentity==='string'){
+    const value=rawIdentity.trim();
+    return value ? value : null;
+  }
+  const numeric=Number(rawIdentity);
+  return Number.isFinite(numeric) ? String(numeric) : null;
+}
+
+async function _readHealthServerIdentity() {
+  try {
+    const r=await fetch(new URL('health', document.baseURI||location.href).href,{cache:'no-store'});
+    if(!r.ok) return null;
+    const data=await r.json();
+    return _normalizeHealthServerIdentity(data&&data.server_started_at);
+  } catch (_) {
+    return null;
+  }
+}
 async function forceUpdate(btn){
   const target=btn&&btn.dataset.target;
   if(!target) return;
@@ -5658,6 +5723,7 @@ async function forceUpdate(btn){
   const errEl=$('updateError');
   if(errEl){errEl.style.display='none';}
   try{
+    const baselineServerIdentity = await _readHealthServerIdentity();
     const res=await api('/api/updates/force',{method:'POST',body:JSON.stringify({target}),timeoutMs:120000});
     if(!res.ok){
       if(errEl){errEl.textContent='Force update failed: '+(res.message||'unknown error');errEl.style.display='block';}
@@ -5667,7 +5733,7 @@ async function forceUpdate(btn){
     showToast('Force update applied — restarting…');
     sessionStorage.removeItem('hermes-update-checked');
     sessionStorage.removeItem('hermes-update-dismissed');
-    _waitForServerThenReload();
+    _waitForServerThenReload({baselineServerIdentity});
   }catch(e){
     if(errEl){errEl.textContent='Force update failed: '+e.message;errEl.style.display='block';}
     btn.disabled=false;btn.textContent='Force update';
@@ -5682,6 +5748,7 @@ async function _waitForServerThenReload(opts){
   opts=opts||{};
   const interval=opts.interval||500;
   const maxMs=opts.maxMs||15000;
+  const baselineServerIdentity=_normalizeHealthServerIdentity(opts.baselineServerIdentity);
   window._restartingForUpdate=true;
   const msgEl=$('reconnectMsg');
   const banner=$('reconnectBanner');
@@ -5698,8 +5765,16 @@ async function _waitForServerThenReload(opts){
         let data={};
         try{ data=await r.json(); }catch(_){}
         if(data && data.status==='ok'){
-          location.reload();
-          return;
+          const nextServerIdentity=_normalizeHealthServerIdentity(data&&data.server_started_at);
+          if (baselineServerIdentity===null){
+            location.reload();
+            return;
+          }
+          if (nextServerIdentity!==null && nextServerIdentity !== baselineServerIdentity){
+            location.reload();
+            return;
+          }
+          // Keep polling while the server keeps reporting the same (pre-restart) process identity
         }
       }
     }catch(_){ /* socket closed during restart — retry */ }
@@ -6140,10 +6215,22 @@ function isCompressionUiRunning(){
   const lock=_compressionSessionLock();
   return !!((state&&state.phase==='running') || (lock && S.session && lock===S.session.session_id));
 }
+// Restore the composer placeholder saved when auto-compaction started. Safe to
+// call whenever compression leaves the running state, from any path (clear,
+// non-running setCompressionUi, or a direct window._compressionUi=null in the
+// SSE handler) — it no-ops when nothing was saved. (#3512)
+function _restoreCompressionPlaceholder(){
+  const _input=$('msg');
+  if(_input&&typeof _compressionPlaceholderSaved==='string'){
+    _input.placeholder=_compressionPlaceholderSaved;
+  }
+  _compressionPlaceholderSaved=null;
+}
 function clearCompressionUi(){
   window._compressionUi=null;
   _clearCompressionElapsedTimer();
   _setCompressionSessionLock(null);
+  _restoreCompressionPlaceholder();
   renderCompressionUi();
 }
 function setCompressionUi(state){
@@ -6157,8 +6244,19 @@ function setCompressionUi(state){
   }
   window._compressionUi=nextState;
   if(nextState.sessionId) _setCompressionSessionLock(nextState.sessionId);
-  if(nextState.automatic&&nextState.phase==='running') _startCompressionElapsedTimer();
-  else _clearCompressionElapsedTimer();
+  if(nextState.automatic&&nextState.phase==='running'){
+    _startCompressionElapsedTimer();
+    const _input=$('msg');
+    if(_input&&_compressionPlaceholderSaved===null){
+      _compressionPlaceholderSaved=_input.placeholder;
+      _input.placeholder=typeof t==='function'?t('composer_compression_will_queue')||'Type a message — it will queue and send after compression':'Type a message — it will queue and send after compression';
+    }
+  } else {
+    _clearCompressionElapsedTimer();
+    // Leaving the running state (e.g. setCompressionUi(done)) must restore the
+    // placeholder too — not only clearCompressionUi(). (#3512 leak fix)
+    _restoreCompressionPlaceholder();
+  }
   renderCompressionUi();
 }
 function _compressionCardsHtml(state){
@@ -6360,7 +6458,10 @@ function _collectHandoffSummaryStates(messages){
 function _isContextCompactionMessage(m){
   if(!m||!m.role||m.role==='tool') return false;
   const text=msgContent(m)||String(m.content||'');
-  return /^\s*\[context compaction/i.test(text) || /^\s*context compaction/i.test(text);
+  return _isContextCompactionText(text);
+}
+function _isContextCompactionText(text){
+  return /^\s*\[context compaction/i.test(String(text||'')) || /^\s*context compaction/i.test(String(text||''));
 }
 function _isPreservedCompressionTaskListMarkerText(text){
   return /^\s*\[your active task list was preserved across context compression\]/i.test(String(text||''));
@@ -6437,6 +6538,9 @@ function _latestCompressionReferenceMessage(messages, summaryText=''){
     if(contentNorm.includes(summaryNorm)) return {message:m, rawIdx:i};
   }
   return {message:null, rawIdx:-1};
+}
+function _shouldShowSettledCompressionReference(referenceText){
+  return !!String(referenceText||'').trim() && !_isContextCompactionText(referenceText);
 }
 function _compressionReferenceCardHtml(text, open=false){
   const copy=_engineAwareCompressionCopy();
@@ -6958,18 +7062,19 @@ function renderMessages(options){
   const referenceText=referenceMessage
     ? msgContent(referenceMessage)||String(referenceMessage.content||'')
     : sessionCompressionSummary;
-  const referenceNode=(!compressionState && !!referenceText && (sessionCompressionAnchor!==null || sessionCompressionAnchorKey || sessionCompressionSummary))
+  const referenceNode=(!compressionState && _shouldShowSettledCompressionReference(referenceText) && (sessionCompressionAnchor!==null || sessionCompressionAnchorKey || sessionCompressionSummary))
     ? (()=>{const row=document.createElement('div');row.innerHTML=`<div class="compression-turn"><div class="compression-turn-blocks">${_compressionReferenceCardHtml(referenceText,false)}${_preservedCompressionTaskListCardsHtml(preservedCompressionTaskMessages)}</div></div>`;return row.firstElementChild;})()
     : null;
   let preservedCompressionTaskCardsAttached=!!referenceNode;
   // Cache visWithIdx so expanding the render window (Load earlier) doesn't
   // re-scan S.messages from scratch.  Invalidate only when the message array
   // length changes — i.e. new messages arrived or session was truncated.
-  if(!_visWithIdxCache || _visWithIdxCacheLen !== S.messages.length){
+  if(!_visWithIdxCache || _visWithIdxCacheLen !== S.messages.length || _visWithIdxCacheSrc !== S.messages){
     const rebuilt=[];
     let ri=0;
     for(const m of S.messages){
       if(!m||!m.role||m.role==='tool'){ri++;continue;}
+      if(_isContextCompactionMessage(m)){ri++;continue;}
       if(_isPreservedCompressionTaskListMessage(m)){ri++;continue;}
       if(_isRecoveryControlMessage(m)){ri++;continue;}
       const hasTc=Array.isArray(m.tool_calls)&&m.tool_calls.length>0;
@@ -6980,6 +7085,7 @@ function renderMessages(options){
     }
     _visWithIdxCache=rebuilt;
     _visWithIdxCacheLen=S.messages.length;
+    _visWithIdxCacheSrc=S.messages;
   }
   const visWithIdx=_visWithIdxCache;
   const preservedCompressionRawIdxs=[];
@@ -7175,17 +7281,7 @@ function renderMessages(options){
     const footHtml = `<div class="msg-foot">${timeHtml}<span class="msg-actions">${editBtn}${ttsBtn}${forkBtn}${copyBtn}${retryBtn}</span>${questionJumpBtn}</div>`;
 
     if(_isContextCompactionMessage(m)){
-      if(compressionState || referenceNode){
-        continue;
-      }else{
-        currentAssistantTurn=null;
-        const row=document.createElement('div');
-        const preservedForThisCard=preservedCompressionTaskCardsAttached?[]:preservedCompressionTaskMessages;
-        row.innerHTML=_contextCompactionMessageHtml(m, tsTitle, preservedForThisCard);
-        if(preservedForThisCard.length) preservedCompressionTaskCardsAttached=true;
-        inner.appendChild(row.firstElementChild);
-        continue;
-      }
+      continue;
     }
 
     if(isUser){
@@ -7298,7 +7394,7 @@ function renderMessages(options){
     }
     inner.appendChild(node);
   }
-  const preservedOnlyNode=(!preservedCompressionTaskCardsAttached&&(!referenceMessage||compressionState)&&preservedCompressionTaskMessages.length)
+  const preservedOnlyNode=(!preservedCompressionTaskCardsAttached&&(!referenceNode||compressionState)&&preservedCompressionTaskMessages.length)
     ? (()=>{const row=document.createElement('div');row.innerHTML=`<div class="compression-turn"><div class="compression-turn-blocks">${_preservedCompressionTaskListCardsHtml(preservedCompressionTaskMessages)}</div></div>`;return row.firstElementChild;})()
     : null;
   const preservedOnlyAnchor=preservedCompressionRawIdxs.length
@@ -7434,7 +7530,11 @@ function renderMessages(options){
     });
     if(derived.length) S.toolCalls=derived;
   }
-  if(!S.busy){
+  // Render tool cards: allow during streaming when S.toolCalls is already
+  // populated (e.g. from INFLIGHT restore or SSE events). Only the fallback
+  // derivation above is blocked by S.busy — DOM insertion should proceed
+  // whenever tool cards exist.
+  if(!S.busy || (S.toolCalls&&S.toolCalls.length)){
     inner.querySelectorAll('.tool-call-group:not([data-compression-card]),.tool-card-row:not([data-compression-card]),.agent-activity-thinking:not([data-live-thinking="1"])').forEach(el=>el.remove());
     const byAssistant = {};
     for(const tc of (S.toolCalls||[])){
@@ -7625,6 +7725,28 @@ function _toolDisplayName(tc){
   if(name==='delegate_task') return 'Delegate task';
   return name;
 }
+
+// Activity-summary detection for persisted memory/skill writes (#3340, #3544).
+// Action vocabularies match the real agent tool enums:
+//   memory.action      = add | replace | remove   (add/replace persist content → "saved")
+//   skill_manage.action= create | patch | edit | delete | write_file | remove_file
+//                        (create/patch/edit/write_file mutate a skill → "updated")
+// Deletions (memory 'remove', skill 'delete'/'remove_file') are intentionally
+// excluded so the "saved"/"updated" label verbs stay accurate; running/errored
+// calls are excluded so only completed writes are counted.
+const _MEMORY_SAVE_ACTIONS=new Set(['add','replace']);
+const _SKILL_UPDATE_ACTIONS=new Set(['create','patch','edit','write_file']);
+function _tcAction(tc){
+  return String((tc&&tc.args&&tc.args.action)||'').toLowerCase();
+}
+function _isMemorySave(tc){
+  if(!tc||tc.name!=='memory'||tc.done===false||tc.is_error) return false;
+  return _MEMORY_SAVE_ACTIONS.has(_tcAction(tc));
+}
+function _isSkillUpdate(tc){
+  if(!tc||tc.name!=='skill_manage'||tc.done===false||tc.is_error) return false;
+  return _SKILL_UPDATE_ACTIONS.has(_tcAction(tc));
+}
 function toolIcon(name){
   const icons={
     terminal:        li('terminal'),
@@ -7751,6 +7873,15 @@ function buildToolCard(tc){
         </div>`:''}
       </div>`:''}
     </div>`;
+  row._tcData = tc;
+  // Durable classification flags: _tcData (a JS property) does NOT survive the
+  // outerHTML/innerHTML snapshot+restore the live tool-call group uses on session
+  // switch/restore, which would make _syncToolCallGroupSummary re-count restored
+  // memory/skill rows as generic tools and silently drop the suffix. Mirror the
+  // classification onto data-* attributes so it survives serialization. (#3544)
+  if(_isMemorySave(tc)){row.setAttribute('data-memory-save','1');row.removeAttribute('data-skill-update');}
+  else if(_isSkillUpdate(tc)){row.setAttribute('data-skill-update','1');row.removeAttribute('data-memory-save');}
+  else {row.removeAttribute('data-memory-save');row.removeAttribute('data-skill-update');}
   return row;
 }
 
@@ -7800,10 +7931,25 @@ function _syncToolCallGroupSummary(group){
   const label=group.querySelector('.tool-call-group-label');
   const durationEl=group.querySelector('.tool-call-group-duration');
   if(label){
+    const rows=Array.from(group.querySelectorAll('.tool-card-row'));
+    // Prefer the live _tcData classification; fall back to the durable data-*
+    // flags for rows restored from an HTML snapshot (which drops JS properties).
+    const isMem=r=>_isMemorySave(r._tcData)||r.getAttribute('data-memory-save')==='1';
+    const isSkill=r=>_isSkillUpdate(r._tcData)||r.getAttribute('data-skill-update')==='1';
+    const memCount=rows.filter(isMem).length;
+    const skillCount=rows.filter(r=>!isMem(r)&&isSkill(r)).length;
+    const otherCount=Math.max(0, toolCount-memCount-skillCount);
+    let suffix='';
+    if(memCount) suffix+=`, ${memCount} ${memCount===1?'memory':'memories'} saved`;
+    if(skillCount) suffix+=`, ${skillCount} ${skillCount===1?'skill':'skills'} updated`;
+    const toolsPart=otherCount?`${otherCount} tool${otherCount===1?'':'s'}`:'';
     if(group.getAttribute('data-live-tool-call-group')==='1'){
-      label.textContent=toolCount?`Activity: ${toolCount} tool${toolCount===1?'':'s'}`:'Activity · Running';
-    }else if(toolCount) label.textContent=`Activity: ${toolCount} tool${toolCount===1?'':'s'}`;
-    else label.textContent='Activity';
+      if(toolsPart) label.textContent=`Activity: ${toolsPart}${suffix}`;
+      else if(suffix) label.textContent=`Activity: ${suffix.slice(2)}`;
+      else label.textContent='Activity · Running';
+    }else if(toolsPart||suffix){
+      label.textContent=toolsPart?`Activity: ${toolsPart}${suffix}`:`Activity: ${suffix.slice(2)}`;
+    }else label.textContent='Activity';
     label.setAttribute('data-sweep-label', label.textContent);
   }
   if(durationEl){
@@ -8485,7 +8631,7 @@ function loadPdfInline(container){
             el.outerHTML=`<div class="pdf-preview-fallback"><a class="msg-media-link" href="api/media?path=${encodeURIComponent(path)}&download=1" download="${esc(fname)}">📎 ${esc(fname)}</a><br><span style="color:var(--muted);font-size:12px">${t('pdf_too_large')}</span></div>`;
             return;
           }
-          return pdfjsLib.getDocument({data:buf}).promise;
+          return pdfjsLib.getDocument({data:buf, isEvalSupported:false}).promise;
         })
         .then(pdf=>{
           if(!pdf) return;
@@ -8518,16 +8664,14 @@ function loadPdfInline(container){
       loadPdf(window._pdfjsLib);
     } else if(!_pdfjsLoading){
       _pdfjsLoading=true;
+      const _pdfSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.9.155/build/pdf.min.mjs';
+      const _pdfWorker='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.9.155/build/pdf.worker.min.mjs';
+      const _pdfBlob=new Blob([`import*as p from'${_pdfSrc}';p.GlobalWorkerOptions.workerSrc='${_pdfWorker}';window._pdfjsLib=p;window._pdfjsReady=true;window.dispatchEvent(new Event('pdfjs-ready'));`],{type:'application/javascript'});
       const s=document.createElement('script');
-      s.src='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.9.155/build/pdf.min.mjs';
       s.type='module';
-      s.textContent=`
-        import * as pdfjsLib from '${s.src}';
-        pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.9.155/build/pdf.worker.min.mjs';
-        window._pdfjsLib=pdfjsLib;
-        window._pdfjsReady=true;
-        window.dispatchEvent(new Event('pdfjs-ready'));
-      `;
+      const _pdfBlobUrl=URL.createObjectURL(_pdfBlob);
+      s.src=_pdfBlobUrl;
+      s.onload=()=>URL.revokeObjectURL(_pdfBlobUrl);
       document.head.appendChild(s);
       window.addEventListener('pdfjs-ready',()=>{ _pdfjsReady=true; loadPdf(window._pdfjsLib); },{once:true});
       setTimeout(()=>{
