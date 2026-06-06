@@ -22,6 +22,7 @@ import threading
 import time
 import uuid
 import re
+from types import SimpleNamespace
 from collections import defaultdict
 from pathlib import Path
 from contextlib import closing
@@ -2940,6 +2941,10 @@ from api.run_journal import (
 )
 from api.todo_state import attach_todo_state
 from api.providers import get_providers, get_provider_quota, get_provider_cost_history, set_provider_key, remove_provider_key
+from api import provider_routes
+from api.provider_route_registry import register_provider_routes
+from api.route_registry import NO_ROUTE, RouteRegistry
+from api.weixin_route_registry import register_weixin_routes
 from api.onboarding import (
     apply_onboarding_setup,
     get_onboarding_status,
@@ -2951,6 +2956,16 @@ from api.oauth import (
     poll_onboarding_oauth_flow,
     start_onboarding_oauth_flow,
 )
+
+_ROUTE_REGISTRY = RouteRegistry()
+register_provider_routes(_ROUTE_REGISTRY)
+register_weixin_routes(_ROUTE_REGISTRY)
+
+
+def _route_context():
+    """Expose route dependencies lazily so tests can still monkeypatch routes.py."""
+    return SimpleNamespace(**globals())
+
 
 # Approval system (optional -- graceful fallback if agent not available)
 try:
@@ -4701,6 +4716,13 @@ def _serve_manifest(handler) -> bool:
 def handle_get(handler, parsed) -> bool:
     """Handle all GET routes. Returns True if handled, False for 404."""
 
+    # Registered exact-path business routes:
+    # "/api/hermes/weixin/qrcode", "/api/hermes/weixin/qrcode/status",
+    # "/api/models/live", "/api/providers".
+    registered = _ROUTE_REGISTRY.dispatch_get(handler, parsed, _route_context())
+    if registered is not NO_ROUTE:
+        return registered
+
     if parsed.path.startswith("/session/static/"):
         # Strip the leading "/session" so _serve_static() sees a path that
         # starts with "/static/" (its required prefix). _serve_static enforces
@@ -6270,6 +6292,10 @@ def handle_post(handler, parsed) -> bool:
         if diag:
             diag.finish()
         raise
+
+    registered = _ROUTE_REGISTRY.dispatch_post(handler, parsed, body, _route_context())
+    if registered is not NO_ROUTE:
+        return registered
 
     if parsed.path == "/api/session/recovery/repair-safe":
         from api.session_recovery import repair_safe_session_recovery

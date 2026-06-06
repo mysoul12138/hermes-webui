@@ -6700,7 +6700,7 @@ async function _loadPluginPage(path, label) {
 
 // ── Providers panel ─────────────────────────────────────────────────────────
 
-const _providerCardEls = new Map(); // providerId → {card, statusDot, input, saveBtn, removeBtn}
+// _providerCardEls is declared in provider-config.js (loaded first).
 
 async function _fetchProviderQuotaStatus(force=false){
   const endpoint=force?`/api/provider/quota?refresh=1&ts=${Date.now()}`:'/api/provider/quota';
